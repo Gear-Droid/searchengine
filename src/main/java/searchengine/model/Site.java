@@ -4,6 +4,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.CurrentTimestamp;
+
 import java.time.LocalDateTime;
 
 @Getter @Setter
@@ -19,6 +21,7 @@ public class Site {
     @Enumerated
     private SiteStatus status;
 
+    @CurrentTimestamp
     @Column(name = "status_time", nullable = false,
             columnDefinition = "DATETIME")
     private LocalDateTime statusTime;  // дата и время статуса
