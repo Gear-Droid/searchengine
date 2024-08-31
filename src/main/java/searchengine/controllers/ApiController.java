@@ -8,6 +8,7 @@ import searchengine.dto.responses.ResponseDto;
 import searchengine.dto.responses.SuccessResponseDto;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.services.StatisticsService;
+import searchengine.services.indexing.IndexingAlreadyLaunchedException;
 import searchengine.services.indexing.IndexingService;
 
 import java.util.Random;
@@ -30,14 +31,12 @@ public class ApiController {
         //  переиндексацию, если они уже проиндексированы.
         //  Если в настоящий момент индексация или переиндексация уже
         //  запущена, метод возвращает соответствующее сообщение об ошибке.
-        indexingService.indexPagesFromSitesList();
 
-        boolean isSuccess = new Random().nextBoolean();
-        if (isSuccess) {
+        try {
+            indexingService.indexPagesFromSitesList();
             return ResponseEntity.ok(new SuccessResponseDto(true));
-        } else {
-            return ResponseEntity.ok(
-                    new ErrorResponseDto(false, "Индексация уже запущена"));
+        } catch (IndexingAlreadyLaunchedException e) {
+            return ResponseEntity.ok(new ErrorResponseDto(false, "Индексация уже запущена"));
         }
     }
 

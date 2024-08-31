@@ -8,9 +8,12 @@ import org.springframework.transaction.annotation.Transactional;
 import searchengine.config.SitesList;
 import searchengine.model.Site;
 import searchengine.model.SiteStatus;
+import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
@@ -20,12 +23,15 @@ import java.util.concurrent.RecursiveTask;
 @RequiredArgsConstructor
 public class IndexingService {
 
-    private static final String SERVICE_ACTION_TEMPLATE =
-            "Сервис " + IndexingService.class.getName() + ": %s";
-
     private final SitesList sites;  // сайты из конфигурационного файла
     private final SiteRepository siteRepository;
+    private final PageRepository pageRepository;
 
+    private final Map<Site, List<ForkJoinPool>> fjpsMap = new HashMap<>();  // мапа ForkJoinPool'ов по индексируемым сайтам
+
+    /**
+     * Метод обхода сайтов из конфигурационного файла, и вызова их обработки
+     * **/
     @Transactional
     public void indexPagesFromSitesList() throws IndexingAlreadyLaunchedException {
         List<searchengine.config.Site> sitesToProcess = sites.getSites().stream()
@@ -33,11 +39,13 @@ public class IndexingService {
         sitesToProcess.forEach(this::handleSite);
     }
 
+    /**
+     * Метод запуска индексации по определенному сайту
+     * **/
     public void handleSite(searchengine.config.Site configSite) throws IndexingAlreadyLaunchedException {
         String configSiteName = configSite.getName();
         String configSiteUrl = configSite.getUrl();
-        log.info(SERVICE_ACTION_TEMPLATE.formatted(
-                "Выполняется обработка сайта \"" + configSiteName + "\" с url = " + configSiteUrl));
+        log.info("Выполняется обработка сайта \"" + configSiteName + "\" с url = " + configSiteUrl);
 
         Site site = new Site();
         site.setUrl(configSiteUrl);
@@ -45,19 +53,26 @@ public class IndexingService {
 
         site.setName(configSiteName);
         site.setStatus(SiteStatus.INDEXING);
-        siteRepository.save(site);  // обновляем данные индексации сайта
+        siteRepository.saveAndFlush(site);  // обновляем данные индексации сайта
 
-//        RecursiveTask<CopyOnWriteArraySet<String>> task =
-//                new PagesTreeBuilder(site, site.getUrl());
-//        new ForkJoinPool().invoke(task);  // запускаем обход сайта
+        RecursiveTask<CopyOnWriteArraySet<String>> task = new SiteIndexator(site, siteRepository, pageRepository);
+
+        /* TODO: попробовать try-with-resources с FJP */
+        ForkJoinPool fjp = new ForkJoinPool();  // запускаем обход страниц сайта
+
+//        fjp.invoke(task);  // дожидается конца индексирования
+        fjp.submit(task);  // не дожидается конца индексирования
+
+//        site.setStatus(SiteStatus.INDEXED);
+//        siteRepository.saveAndFlush(site);  // обновляем данные индексации сайта
+//        log.info("Закончена обработка сайта \"" + configSiteName + "\" с url = " + configSiteUrl);
     }
 
-    private void checkAndPrepareSiteRepository (Site site) throws IndexingAlreadyLaunchedException {
+    private void checkAndPrepareSiteRepository(Site site) throws IndexingAlreadyLaunchedException {
         List<Site> foundSites = siteRepository.findAll(Example.of(site));  // поиск сайтов по url
         foundSites.forEach((foundSite) -> {  // проверяем в процессе ли индексация данного сайта
             if (foundSite.getStatus() == SiteStatus.INDEXING) {
-                String message = SERVICE_ACTION_TEMPLATE.formatted(
-                        "Индексация по сайту с url = \"" + site.getUrl() + "\" уже запущена!");
+                String message = "Индексация по сайту с url = \"" + site.getUrl() + "\" уже запущена!";
                 log.info(message);
                 throw new IndexingAlreadyLaunchedException(message);
             }
