@@ -1,4 +1,4 @@
-package searchengine.services.indexing;
+package searchengine.services.indexing.utils;
 
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.HttpStatusException;
@@ -12,37 +12,41 @@ import java.io.IOException;
 @Slf4j
 public class HttpJsoupConnector {
 
-    private static final int REQUEST_TIMEOUT = 500;  // (мс) таймаут перед запросами к ссылкам
+    private static final int REQUEST_TIMEOUT = 1_000;  // (мс) таймаут перед запросами к ссылкам
+    private static final String USER_AGENT = "SkillboxFinalTaskSearchBot";
+    private static final String REFERER = "http://www.google.com";
 
     public PageDto getPageDtoFromLink(String link) {
         PageDto pageDto = new PageDto();
         pageDto.setPath(link);
-        pageDto.setCode(200);
         synchronized (this) {
             try {
-                fillPageDtoFromLink(pageDto);  //  все ссылки на странице
+                fillPageDto(pageDto);
+                pageDto.setCode(200);
             } catch (HttpStatusException e) {
                 log.warn(e.getMessage());
                 pageDto.setCode(e.getStatusCode());
             } catch (IOException e) {
                 log.warn(e.getMessage());
                 pageDto.setCode(HttpStatus.NOT_FOUND.value());
+            } finally {
+                try {
+                    Thread.sleep(REQUEST_TIMEOUT);
+                } catch (InterruptedException e) {
+                    log.warn(e.getMessage());
+                }
             }
         }
         return pageDto;
     }
 
-    private void fillPageDtoFromLink(PageDto pageDto) throws IOException {
-        try {
-            Thread.sleep(REQUEST_TIMEOUT);
-        } catch (InterruptedException e) {
-            log.warn(e.getMessage());
-            return;
-        }
-
+    private void fillPageDto(PageDto pageDto) throws IOException {
         String link = pageDto.getPath();
-        log.info("Выполняется HTTP запрос к url = " + link);
-        Document doc = Jsoup.connect(link).get();
+        log.info("Выполняется HTTP запрос к url = ".concat(link));
+        Document doc = Jsoup.connect(link)
+                .userAgent(USER_AGENT)
+                .referrer(REFERER)
+                .get();
         pageDto.setContent(doc.html());
         pageDto.setLinks(doc.select("a"));
     }

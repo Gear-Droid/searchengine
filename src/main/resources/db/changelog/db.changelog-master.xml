@@ -115,4 +115,10 @@
             <column name="path(255)"/>
         </createIndex>
     </changeSet>
+
+    <changeSet id="7_CreateSiteUrlUniqueConstraint" author="root">
+        <addUniqueConstraint  columnNames="url"
+                              constraintName="site_url"
+                              tableName="site"/>
+    </changeSet>
 </databaseChangeLog>

@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import jakarta.persistence.*;
-import org.hibernate.annotations.CurrentTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
@@ -21,9 +21,8 @@ public class Site {
     @Enumerated
     private SiteStatus status;
 
-    @CurrentTimestamp
-    @Column(name = "status_time", nullable = false,
-            columnDefinition = "DATETIME")
+    @UpdateTimestamp
+    @Column(name = "status_time", nullable = false, columnDefinition = "DATETIME")
     private LocalDateTime statusTime;  // дата и время статуса
         // (в случае статуса INDEXING дата и время должны обновляться регулярно
         // при добавлении каждой новой страницы в индекс)

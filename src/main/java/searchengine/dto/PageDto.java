@@ -22,7 +22,7 @@ public class PageDto {
     private Integer code;  // код HTTP-ответа, полученный при запросе
     // страницы (например, 200, 404, 500 или другие);
 
-    private String content;  // контент страницы (HTML-код)
+    private String content = "";  // контент страницы (HTML-код)
 
     private Elements links = new Elements();
 

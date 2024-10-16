@@ -4,12 +4,14 @@ server:
 # example values
 indexing-settings:
   sites:
-    - url: https://www.lenta.ru
-      name: Лента.ру
-    - url: https://www.skillbox.ru
-      name: Skillbox
-    - url: https://www.playback.ru
-      name: PlayBack.Ru
+    - url: https://www.sendel.ru
+      name: sendel.ru
+#    - url: https://www.lenta.ru
+#      name: Лента.ру
+#    - url: https://www.skillbox.ru
+#      name: Skillbox
+#    - url: https://www.playback.ru
+#      name: PlayBack.Ru
 
 spring:
   datasource:
@@ -17,6 +19,8 @@ spring:
     password: root
     url:
       jdbc:mysql://localhost:3306/search_engine?useSSL=false&requireSSL=false&allowPublicKeyRetrieval=true
+    hikari:
+      auto-commit: true
 
   jpa:
     show-sql: true
@@ -24,9 +28,14 @@ spring:
       ddl-auto: none
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQL8Dialect
+        dialect: org.hibernate.dialect.MySQLDialect
+
 
   liquibase:
     enabled: true
     change-log: classpath:db/changelog/db.changelog-master.xml
     drop-first: false
+
+#logging:
+#  level:
+#    root: DEBUG

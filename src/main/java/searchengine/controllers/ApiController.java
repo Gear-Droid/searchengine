@@ -8,8 +8,9 @@ import searchengine.dto.responses.ResponseDto;
 import searchengine.dto.responses.SuccessResponseDto;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.services.StatisticsService;
-import searchengine.services.indexing.IndexingAlreadyLaunchedException;
+import searchengine.services.indexing.exceptions.IndexingAlreadyLaunchedException;
 import searchengine.services.indexing.IndexingService;
+import searchengine.services.indexing.exceptions.IndexingIsNotLaunchedException;
 
 import java.util.Random;
 
@@ -27,13 +28,8 @@ public class ApiController {
 
     @GetMapping("/startIndexing")
     public ResponseEntity<? extends ResponseDto> startIndexing() {
-        // TODO: Метод запускает полную индексацию всех сайтов или полную
-        //  переиндексацию, если они уже проиндексированы.
-        //  Если в настоящий момент индексация или переиндексация уже
-        //  запущена, метод возвращает соответствующее сообщение об ошибке.
-
         try {
-            indexingService.indexPagesFromSitesList();
+            indexingService.indexAll();
             return ResponseEntity.ok(new SuccessResponseDto(true));
         } catch (IndexingAlreadyLaunchedException e) {
             return ResponseEntity.ok(new ErrorResponseDto(false, "Индексация уже запущена"));
@@ -42,16 +38,11 @@ public class ApiController {
 
     @GetMapping("/stopIndexing")
     public ResponseEntity<? extends ResponseDto> stopIndexing() {
-        // TODO: Метод останавливает текущий процесс индексации (переиндексации).
-        //  Если в настоящий момент индексация или переиндексация не происходит,
-        //  метод возвращает соответствующее сообщение об ошибке.
-
-        boolean isSuccess = new Random().nextBoolean();
-        if (isSuccess) {
+        try {
+            indexingService.stopAll();
             return ResponseEntity.ok(new SuccessResponseDto(true));
-        } else {
-            return ResponseEntity.ok(
-                    new ErrorResponseDto(false, "Индексация не запущена"));
+        } catch (IndexingIsNotLaunchedException e) {
+            return ResponseEntity.ok(new ErrorResponseDto(false, "Индексация не запущена"));
         }
     }
 
