@@ -1,4 +1,4 @@
-package searchengine.services.indexing.utils;
+package searchengine.services;
 
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.HttpStatusException;
@@ -10,7 +10,7 @@ import searchengine.dto.PageDto;
 import java.io.IOException;
 
 @Slf4j
-public class HttpJsoupConnector {
+public class HttpJsoupConnectorService {
 
     private static final int REQUEST_TIMEOUT = 1_000;  // (мс) таймаут перед запросами к ссылкам
     private static final String USER_AGENT = "SkillboxFinalTaskSearchBot";

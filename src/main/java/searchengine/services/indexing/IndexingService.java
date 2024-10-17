@@ -11,9 +11,11 @@ import searchengine.model.Site;
 import searchengine.model.SiteStatus;
 import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
+import searchengine.services.indexing.exceptions.ConfigSiteNotFoundException;
 import searchengine.services.indexing.exceptions.IndexingAlreadyLaunchedException;
 import searchengine.services.indexing.exceptions.IndexingIsNotLaunchedException;
 import searchengine.services.indexing.utils.PageIndexator;
+import searchengine.services.morphology.LemmasService;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,6 +31,7 @@ public class IndexingService {
     private final SitesList sites;  // сайты из конфигурационного файла
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
+    private final LemmasService lemmasService;
 
     private final Map<searchengine.config.Site, ForkJoinPool> fjpMap =
             new HashMap<>();  // мапа ForkJoinPool'ов по индексируемым сайтам
@@ -68,18 +71,13 @@ public class IndexingService {
 
         ForkJoinPool fjp = new ForkJoinPool();  // запускаем обход страниц сайта
         CopyOnWriteArrayList<PageIndexator> siteTasksList = new CopyOnWriteArrayList<>();
-        PageIndexator task =
-                new PageIndexator(siteDto, siteDto.getUrl(), siteRepository, pageRepository, siteTasksList);
+        PageIndexator task = new PageIndexator(siteDto, siteDto.getUrl(),
+                        siteRepository, pageRepository,
+                        siteTasksList, lemmasService, false);
         siteTasksList.add(task);
         fjpMap.put(configSite, fjp);
-
         /* TODO: попробовать try-with-resources с FJP */
         fjp.submit(task);  // не дожидается конца индексирования
-
-//        fjp.invoke(task);  // дожидается конца индексирования
-//        site.setStatus(SiteStatus.INDEXED);
-//        siteRepository.saveAndFlush(site);  // обновляем данные индексации сайта
-//        log.info("Закончена обработка сайта \"" + configSiteName + "\" с url = " + configSiteUrl);
     }
 
     /*
@@ -96,7 +94,8 @@ public class IndexingService {
         if (optionalSite.isPresent()) {
             siteDto = siteToSiteDto(optionalSite.get());
         } else {
-            log.info("Не удалось найти сайт с url = " + configSiteUrl + " в БД! Индексация будет запущена впервые.");
+            log.info("Не удалось найти сайт с url = " + configSiteUrl + " в БД!" +
+                    " Индексация будет запущена впервые.");
             siteDto.setUrl(configSiteUrl);
         }
 
@@ -163,8 +162,44 @@ public class IndexingService {
                 siteToStop.getUrl() + " остановлена пользователем");
     }
 
-    public void indexPage(String url) {
-        log.info(url);
+    @Transactional
+    public void indexPage(String url) throws ConfigSiteNotFoundException, IndexingAlreadyLaunchedException {
+        searchengine.config.Site configSite = getConfigSiteOrThrowNotFound(url);
+        SiteDto siteDto = getSiteDto(configSite);
+        if (siteDto.getStatus() == SiteStatus.INDEXING) {  // проверяем индексируется ли сайт сейчас
+            String message = "Индексация по сайту с url = \"" + configSite.getUrl() + "\" уже запущена!";
+            log.warn(message);
+            throw new IndexingAlreadyLaunchedException(message);
+        }
+
+        siteDto.setStatusTime(null);  // для обновления времени статуса
+        siteDto.setStatus(SiteStatus.INDEXING);
+        siteDto = siteToSiteDto(
+                siteRepository.saveAndFlush(siteDtoToSite(siteDto)));  // обновляем данные сайта
+
+        try (ForkJoinPool fjp = new ForkJoinPool()) {
+            CopyOnWriteArrayList<PageIndexator> siteTasksList = new CopyOnWriteArrayList<>();
+            PageIndexator task = new PageIndexator(siteDto, url,
+                    siteRepository, pageRepository,
+                    siteTasksList, lemmasService,
+                    true);
+            siteTasksList.add(task);
+            fjp.submit(task);  // не дожидается конца индексирования
+        }
+    }
+
+    private searchengine.config.Site getConfigSiteOrThrowNotFound(String url)
+            throws ConfigSiteNotFoundException {
+        List<searchengine.config.Site> configSites = sites.getSites().stream()
+                .toList();
+        for (searchengine.config.Site configSite : configSites) {
+            if (url.contains(configSite.getUrl())) {
+                return configSite;
+            }
+        }
+        String message = "Данная страница находится за пределами сайтов, указанных в конфигурационном файле!";
+        log.warn("[" + url + "] " + message);
+        throw new ConfigSiteNotFoundException(message);
     }
 
     public static SiteDto siteToSiteDto(Site site) {
