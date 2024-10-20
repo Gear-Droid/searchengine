@@ -24,8 +24,6 @@ public class Site {
     @UpdateTimestamp
     @Column(name = "status_time", nullable = false, columnDefinition = "DATETIME")
     private LocalDateTime statusTime;  // дата и время статуса
-        // (в случае статуса INDEXING дата и время должны обновляться регулярно
-        // при добавлении каждой новой страницы в индекс)
 
     @Column(name = "last_error", columnDefinition = "TEXT")
     private String lastError;  // текст ошибки индексации

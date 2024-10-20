@@ -18,8 +18,7 @@ public class Page {
     private Site site;  // веб-сайт из таблицы site;
 
     @Column(name = "path", nullable = false, columnDefinition = "TEXT")
-    private String path;  // адрес страницы от корня сайта
-        // (должен начинаться со слэша, например: /news/372189/);
+    private String path;  // относительный адрес страницы от корня сайта
 
     @Column(name = "code", nullable = false)
     private Integer code;  // код HTTP-ответа, полученный при запросе

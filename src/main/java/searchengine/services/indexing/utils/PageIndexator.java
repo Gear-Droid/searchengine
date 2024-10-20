@@ -5,22 +5,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.jsoup.nodes.*;
 import org.jsoup.select.Elements;
 import org.springframework.data.domain.Example;
+import org.springframework.data.repository.Repository;
 import org.springframework.http.HttpStatus;
 import searchengine.dto.PageDto;
 import searchengine.dto.SiteDto;
-import searchengine.model.Page;
-import searchengine.model.Site;
-import searchengine.model.SiteStatus;
+import searchengine.model.*;
 import searchengine.services.HttpJsoupConnectorService;
-import searchengine.services.indexing.IndexingService;
-import searchengine.repositories.PageRepository;
-import searchengine.repositories.SiteRepository;
 import searchengine.services.morphology.LemmasService;
+import searchengine.services.indexing.IndexingService;
+import searchengine.repositories.*;
 
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.RecursiveTask;
+import java.util.stream.Collectors;
 
 @Slf4j
 @NoArgsConstructor
@@ -31,54 +30,50 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
 
     private static final String PROCESS_STARTED_MESSAGE = "Выполняется обработка страницы \"%s\"";
     private static final String PROCESS_FINISHED_MESSAGE = "Закончена обработка страницы \"%s\"";
+    private static final String SITE_INDEXATION_FINISHED = "Закончена индексация сайта с url=%s";
 
-    private SiteDto siteDto;
-    private String currentLink;
+    private static Map<String, Repository> repositories;  // для удобной передачи в конструктор потомков
+
     private HttpJsoupConnectorService httpService;  // сервис запросов к сайту
+    private LemmasService lemmasService;  // сервис лемматизации
+
     private SiteRepository siteRepository;
     private PageRepository pageRepository;
-    private CopyOnWriteArrayList<PageIndexator> siteTaskList;
-    private LemmasService lemmasService;
-    private boolean onlyThisPageIndex;
+    private IndexRepository indexRepository;
 
-    /* Конструктор для потомков корня сайта */
-    public PageIndexator(SiteDto siteDto,
-                         String currentLink,
+    private SiteDto siteDto;  // инфо сайта
+    private String currentLink;  // текущая полная ссылка
+    private boolean onlyThisPageIndex;  // флаг для индексации одной конкретной страницы
+    private CopyOnWriteArrayList<PageIndexator> siteTaskList;  // для отслеживания оставшихся задач
+
+    /* Конструктор для потомков сайта */
+    public PageIndexator(SiteDto siteDto, String currentLink,
                          HttpJsoupConnectorService httpService,
-                         SiteRepository siteRepository,
-                         PageRepository pageRepository,
+                         Map<String, Repository> repositories,
                          CopyOnWriteArrayList<PageIndexator> siteTaskList,
                          LemmasService lemmasService,
                          boolean onlyThisPageIndex) {
         this.siteDto = siteDto;
         this.currentLink = currentLink;
         this.httpService = httpService;
-        this.siteRepository = siteRepository;
-        this.pageRepository = pageRepository;
+        PageIndexator.repositories = repositories;
+        this.siteRepository = (SiteRepository) repositories.get("siteRepository");
+        this.pageRepository = (PageRepository) repositories.get("pageRepository");
+        this.indexRepository = (IndexRepository) repositories.get("indexRepository");
         this.siteTaskList = siteTaskList;
         this.lemmasService = lemmasService;
         this.onlyThisPageIndex = onlyThisPageIndex;
     }
 
     /* Конструктор для корня сайта */
-    public PageIndexator(
-            SiteDto siteDto,
-            String siteUrl,
-            SiteRepository siteRepository,
-            PageRepository pageRepository,
-            CopyOnWriteArrayList<PageIndexator> siteTaskList,
-            LemmasService lemmasService,
-            boolean onlyThisPageIndex) {
-        this(
-            siteDto,
-            siteUrl,
-            new HttpJsoupConnectorService(),
-            siteRepository,
-            pageRepository,
-            siteTaskList,
-            lemmasService,
-            onlyThisPageIndex
-        );
+    public PageIndexator(SiteDto siteDto, String siteUrl,
+                         Map<String, Repository> repositories,
+                         CopyOnWriteArrayList<PageIndexator> siteTaskList,
+                         LemmasService lemmasService,
+                         boolean onlyThisPageIndex) {
+        this(siteDto, siteUrl,
+            new HttpJsoupConnectorService(), repositories,
+            siteTaskList, lemmasService, onlyThisPageIndex);
     }
 
     @Override
@@ -89,21 +84,21 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
         try {
             site = getSiteOrThrowNoSuchElement();
         } catch (NoSuchElementException e) {
-            log.error("Не удалось найти сайт: id=" + siteDto.getId() + ", url=" + siteDto.getUrl() +
-                    " (" + e.getLocalizedMessage() + ")");
-            pageIndexingEnd();
-            return new CopyOnWriteArraySet<>();
+            return errorExit(e);
         }
 
         String relativePath = currentLink.substring(siteDto.getUrl().length());
         relativePath = relativePath.isEmpty() ? "/" : relativePath;
-        boolean isExistsInRepository = isExistsInRepository(relativePath, site);
-        if (isExistsInRepository && onlyThisPageIndex) {
-            removeFromRepository(relativePath, site);
-        } else if (siteDto.getStatus() != SiteStatus.INDEXING || isExistsInRepository) {
-            pageIndexingEnd();
-            return new CopyOnWriteArraySet<>();
+
+        Optional<Page> optionalPage = getOptionalPage(relativePath, site);
+        boolean isExistsInRepository = optionalPage.isPresent();
+        if (isExistsInRepository) {
+            Set<Integer> previousLemmasIds = getPreviousLemmasIdSet(optionalPage.get());
+            lemmasService.decrementFrequencyOrRemoveByIds(previousLemmasIds);
+
+            if (onlyThisPageIndex) removePageFromRepository(relativePath, site);
         }
+        if (siteDto.getStatus() != SiteStatus.INDEXING) return successExit();
 
         PageDto pageDto = httpService.getPageDtoFromLink(currentLink);
         pageDto.setPath(relativePath);
@@ -114,22 +109,22 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
 
         try {  // проверяем сайт после запроса к нему
             getSiteOrThrowNoSuchElement();
-            if (siteDto.getStatus() != SiteStatus.INDEXING) {
-                throw new NoSuchElementException();  // принудительное завершение
-            }
-        } catch (NoSuchElementException e ) {
-            pageIndexingEnd();
-            return new CopyOnWriteArraySet<>();
-        }
-        updateSiteAndPageEntities(pageDto);
-        if (pageDto.getCode() != HttpStatus.OK.value()) {
-            pageIndexingEnd();
-            return new CopyOnWriteArraySet<>();  // если страница вернула код != ОК
+        } catch (NoSuchElementException e) {
+            return errorExit(e);
         }
 
+        if (siteDto.getStatus() != SiteStatus.INDEXING) return successExit();
+
+        pageDto = updateSiteAndPageEntities(pageDto);
+
+        if (pageDto.getCode() < HttpStatus.BAD_REQUEST.value()) {
+            indexPage(siteDto, pageDto);  // индексируются только коды < 400
+        }
+
+        if (pageDto.getCode() != HttpStatus.OK.value()) return successExit();
+
         log.info("На странице " + currentLink + " найдено " + pageDto.getLinks().size() + " ссылок");
-        // сет для ссылок, которые еще нужно обработать
-        Set<String> tasks = new HashSet<>(
+        Set<String> tasks = new HashSet<>(  // сет для ссылок, которые еще нужно обработать
                 getValidAndFormattedLinks(pageDto.getLinks()));  // форматируем и добавляем в сет
         tasks.removeAll(resultLinks);  // избавляемся от уже добавленных в сет ссылок
 
@@ -138,8 +133,7 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
             joinAllTasks(taskList);
         }
 
-        pageIndexingEnd();
-        return resultLinks;
+        return successExit();
     }
 
     private Site getSiteOrThrowNoSuchElement() throws NoSuchElementException {
@@ -150,25 +144,56 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
         return site;
     }
 
-    private boolean isExistsInRepository(String path, Site site) {
+    private Optional<Page> getOptionalPage(String path, Site site) {
         Page searchPage = new Page();
         searchPage.setPath(path);
         searchPage.setSite(site);
-        return pageRepository.exists(Example.of(searchPage));
+        return pageRepository.findOne(Example.of(searchPage));
     }
 
-    private void removeFromRepository(String relativePath, Site site) {
+    private void removePageFromRepository(String relativePath, Site site) {
         Page searchPage = new Page();
         searchPage.setPath(relativePath);
         searchPage.setSite(site);
+        pageRepository.flush();
         Optional<Page> optionalPageToDelete = pageRepository.findOne(Example.of(searchPage));
         optionalPageToDelete.ifPresent(page -> pageRepository.deleteById(page.getId()));
     }
 
-    private void updateSiteAndPageEntities(PageDto pageDto) {
-        Site site = updateSite();
+    private CopyOnWriteArraySet<String> errorExit(Exception e) {
+        String message = "Не удалось найти сайт: id=" + siteDto.getId() + ", url=" + siteDto.getUrl() +
+                " (" + e.getLocalizedMessage() + ")";
+        log.error(message);
+        pageIndexingEnd(true, message);
+        return new CopyOnWriteArraySet<>();
+    }
+
+
+    private void mainPageNotAvailableExit(Site site, PageDto pageDto) {
+        String warnMessage = "Главная страница сайта " + site.getUrl() +
+                " вернула " + pageDto.getCode() + " код";
         pageDto.setSite(site);
         pageRepository.saveAndFlush(pageDto.toEntity());
+        site.setStatusTime(null);
+        site.setStatus(SiteStatus.FAILED);  // тк главная страница недоступна
+        site.setLastError(warnMessage);
+        siteRepository.saveAndFlush(site);  // обновляем данные сайта
+        log.warn(warnMessage);
+        log.info(SITE_INDEXATION_FINISHED.formatted(site.getUrl()));
+    }
+
+    private CopyOnWriteArraySet<String> successExit() {
+        pageIndexingEnd();
+        return new CopyOnWriteArraySet<>();
+    }
+
+    private PageDto updateSiteAndPageEntities(PageDto pageDto) {
+        Site site = updateSite();
+        siteDto = IndexingService.siteToSiteDto(site);
+        pageDto.setSite(site);
+        Page page = pageRepository.saveAndFlush(pageDto.toEntity());
+        pageDto.setId(page.getId());
+        return pageDto;
     }
 
     private Site updateSite() {
@@ -177,13 +202,29 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
                 IndexingService.siteDtoToSite(siteDto));  // обновляем данные сайта
     }
 
+    private void indexPage(SiteDto siteDto, PageDto pageDto) {
+        Map<String, Integer> foundLemmas = lemmasService.collectLemmas(pageDto.getContent());
+        List<Lemma> lemmaEntitiesToIndex = lemmasService.handleLemmas(foundLemmas, siteDto);
+        IndexingService.indexLemmas(indexRepository,
+                lemmaEntitiesToIndex, foundLemmas, siteDto, pageDto);
+    }
+
+    private Set<Integer> getPreviousLemmasIdSet(Page page) {
+        Index index = new Index();
+        index.setPageId(page.getId());
+        indexRepository.flush();
+        List<Index> pageIndexes = indexRepository.findAll(Example.of(index));
+        return pageIndexes.stream()
+                .map(Index::getLemmaId)
+                .collect(Collectors.toSet());
+    }
+
     private List<PageIndexator> initTaskListFromSet(Set<String> tasks) {
         List<PageIndexator> taskList = new ArrayList<>();
-        for (String linkToProcess : tasks) {
-            // инициализируем рекурсивные задачи
+        for (String linkToProcess : tasks) {  // инициализируем рекурсивные задачи
             PageIndexator task = new PageIndexator(
-                    siteDto, linkToProcess, httpService,
-                    siteRepository, pageRepository,
+                    siteDto, linkToProcess,
+                    httpService, repositories,
                     siteTaskList, lemmasService, false
             );
             task.fork();
@@ -199,31 +240,27 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
         }
     }
 
-    void pageIndexingEnd() {
+    private void pageIndexingEnd(boolean isFail, String errorText) {
         siteTaskList.remove(this);
         log.info(PROCESS_FINISHED_MESSAGE.formatted(currentLink) +
                 ", осталось активных задач по сайту: " + siteTaskList.size());
+
         if (siteTaskList.isEmpty()) {
             resultLinks = new CopyOnWriteArraySet<>();  // Сброс ссылок предыдущих индексаций
             Site site = getSiteOrThrowNoSuchElement();
             site.setStatusTime(null);
-            site.setStatus(SiteStatus.INDEXED);
+
+            if (isFail) site.setStatus(SiteStatus.FAILED);
+            if (isFail && errorText!=null) site.setLastError(errorText);
+            if (site.getStatus()!=SiteStatus.FAILED) site.setStatus(SiteStatus.INDEXED);
+
             siteRepository.saveAndFlush(site);  // обновляем данные сайта
-            log.info("Закончена индексация сайта с url=" + site.getUrl());
+            log.info(SITE_INDEXATION_FINISHED.formatted(site.getUrl()));
         }
     }
 
-    private void mainPageNotAvailableExit(Site site, PageDto pageDto) {
-        String warnMessage = "Главная страница сайта " + site.getUrl() +
-                " вернула " + pageDto.getCode() + " код";
-        pageDto.setSite(site);
-        pageRepository.saveAndFlush(pageDto.toEntity());
-        site.setStatusTime(null);
-        site.setStatus(SiteStatus.FAILED);  // тк главная страница недоступна
-        site.setLastError(warnMessage);
-        siteRepository.saveAndFlush(site);  // обновляем данные сайта
-        log.warn(warnMessage);
-        log.info("Закончена индексация сайта с url=" + site.getUrl());
+    private void pageIndexingEnd() {
+        pageIndexingEnd(false, null);
     }
 
     private boolean isValidLink(String linkValue) {
