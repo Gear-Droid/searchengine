@@ -1,16 +1,13 @@
 package searchengine.services.indexing;
 
 import jakarta.annotation.PostConstruct;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Example;
-import org.springframework.data.repository.Repository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
-import searchengine.config.ConfigSite;
-import searchengine.config.ConfigSiteList;
+import searchengine.config.*;
 import searchengine.dto.indexing.*;
 import searchengine.model.*;
 import searchengine.repositories.*;
@@ -22,7 +19,6 @@ import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -45,15 +41,28 @@ public class IndexingServiceImpl implements IndexingService {
         IndexingService.repositories.put("indexRepository", indexRepository);
     }
 
-    @Override
-    @Transactional
-    public void indexAll() {
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public Map<String, PageIndexator> prepareIndexingTasks() {
         List<ConfigSite> sitesToProcess = sites.getSites().stream()
                 .toList();
-        Map<String, PageIndexator> tasksToSubmit;
-        tasksToSubmit = sitesToProcess.stream()
-                .collect(Collectors.toMap(ConfigSite::getUrl, this::startSiteIndexing));
+        Map<String, PageIndexator> tasks = new HashMap<>();
+        for (ConfigSite configSite : sitesToProcess) {
+            PageIndexator task = prepareIndexingTask(
+                    configSite, configSite.getUrl(), false);
+            tasks.put(configSite.getUrl(), task);
+        }
+        return tasks;
+    }
 
+    @Override
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public PageIndexator preparePageIndexingTask(String queryUrl) {
+        ConfigSite configSite = getConfigSiteByUrlOrThrowConfigSiteNotFoundException(queryUrl);
+        return prepareIndexingTask(configSite, queryUrl, true);
+    }
+
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public void submitAll(Map<String, PageIndexator> tasksToSubmit, boolean shouldControlFjp) {
         tasksToSubmit.forEach((url, task) -> {
             ForkJoinPool fjp = new ForkJoinPool();
             fjpMap.put(url, fjp);  // для последующего контроля
@@ -61,44 +70,8 @@ public class IndexingServiceImpl implements IndexingService {
         });
     }
 
-    /**
-     * Метод запуска индексации по определенному сайту
-     * @throws IndexingAlreadyLaunchedException если уже запущена
-     * **/
-    private PageIndexator startSiteIndexing(ConfigSite configSite) {
-        SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
-        String url = siteDto.getUrl();
-        log.info("Выполняется обработка сайта \"" + configSite.getName() + "\" с url = " + url);
-
-        if (siteDto.getId() != null) {
-            removeSiteFromRepository(siteDto);  // очищаем рез-ты предыдущей индексации
-            siteDto.setId(null);
-        }
-
-        siteDto = IndexingService.siteToSiteDto(transactionalSiteSave(siteDto));
-        return initPageIndexatorTask(siteDto, url, false);
-    }
-
     @Override
-    @Transactional
-    public void indexPage(String queryUrl) {
-        ConfigSite configSite = getConfigSiteByUrlOrThrowConfigSiteNotFoundException(queryUrl);
-
-        SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
-        String url = siteDto.getUrl();
-        log.info("Выполняется индексация/обновление страницы \"" + url + "\"");
-
-        siteDto = IndexingService.siteToSiteDto(
-                siteRepository.saveAndFlush(IndexingService.siteDtoToSite(siteDto))  // обновляем
-        );
-
-        ForkJoinPool fjp = new ForkJoinPool();
-        PageIndexator task = initPageIndexatorTask(siteDto, url, true);
-        fjp.submit(task);  // процесс не дожидается завершения таски
-    }
-
-    @Override
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     public void stopAll() {
         List<Site> indexingSites = getIndexingSiteList();
 
@@ -109,6 +82,26 @@ public class IndexingServiceImpl implements IndexingService {
         }
 
         indexingSites.forEach(this::stopSiteIndexing);
+    }
+
+    /**
+     * Метод запуска индексации с параметрами
+     * @throws IndexingAlreadyLaunchedException если уже запущена
+     * **/
+    private PageIndexator prepareIndexingTask(ConfigSite configSite, String url, boolean onlyThisPageIndexing) {
+        SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
+
+        if (onlyThisPageIndexing) log.info("Выполняется индексация/обновление страницы \"" + url + "\"");
+        else log.info("Выполняется обработка сайта \"" + configSite.getName() + "\" с url = " + url);
+
+        if (!onlyThisPageIndexing && siteDto.getId() != null) {
+            removeSiteFromRepository(siteDto);  // очищаем рез-ты предыдущей индексации сайта
+            siteDto.setId(null);
+        }
+
+        Site siteEntity = IndexingService.siteDtoToSite(siteDto);
+        siteDto = IndexingService.siteToSiteDto(siteRepository.saveAndFlush(siteEntity));
+        return initPageIndexatorTask(siteDto, url, onlyThisPageIndexing);
     }
 
     /**
@@ -199,7 +192,7 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     /**
-     * Метод для очистки прошлых записей индексации
+     * Метод для очистки прошлых записей индексации сайта
      * **/
     private void removeSiteFromRepository(SiteDto siteDto) {
         Site site = new Site();
@@ -208,11 +201,6 @@ public class IndexingServiceImpl implements IndexingService {
         List<Site> foundPages = siteRepository.findAll(siteExample);
         siteRepository.deleteAll(foundPages);  // очищаем прошлые записи индексации страниц сайта
         siteRepository.flush();
-    }
-
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    private Site transactionalSiteSave(SiteDto siteDto) {
-        return siteRepository.saveAndFlush(IndexingService.siteDtoToSite(siteDto));
     }
 
     private PageIndexator initPageIndexatorTask(SiteDto siteDto, String url, boolean onlyThisPageIndexing) {

@@ -4,10 +4,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import searchengine.dto.responses.*;
 import searchengine.dto.statistics.StatisticsResponse;
+import searchengine.services.indexing.utils.PageIndexator;
 import searchengine.services.statistics.StatisticsService;
 import searchengine.services.indexing.exceptions.*;
 import searchengine.services.indexing.IndexingService;
 import searchengine.services.searching.SearchingService;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -28,7 +31,8 @@ public class ApiController {
     @GetMapping("/startIndexing")
     public ResponseEntity<? extends ResponseDto> startIndexing() {
         try {
-            indexingService.indexAll();
+            Map<String, PageIndexator> indexationTasks = indexingService.prepareIndexingTasks();
+            indexingService.submitAll(indexationTasks, true);
         } catch (IndexingAlreadyLaunchedException e) {
             return ResponseEntity.ok(new ErrorResponseDto(false, e.getLocalizedMessage()));
         }
@@ -48,7 +52,8 @@ public class ApiController {
     @PostMapping("/indexPage")
     public ResponseEntity<? extends ResponseDto> indexPage(@RequestParam String url) {
         try {
-            indexingService.indexPage(url);
+            PageIndexator task = indexingService.preparePageIndexingTask(url);
+            indexingService.submitAll(Map.of(url, task), false);
         } catch (ConfigSiteNotFoundException | IndexingAlreadyLaunchedException e) {
             return ResponseEntity.ok(new ErrorResponseDto(false, e.getLocalizedMessage()));
         }

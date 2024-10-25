@@ -8,6 +8,7 @@ import searchengine.dto.indexing.*;
 import searchengine.model.*;
 import searchengine.repositories.IndexRepository;
 import searchengine.services.indexing.exceptions.*;
+import searchengine.services.indexing.utils.PageIndexator;
 
 import java.util.*;
 
@@ -15,13 +16,18 @@ public interface IndexingService {
 
     Logger log = LoggerFactory.getLogger(IndexingService.class);
 
-    Hashtable<String, Repository> repositories = new Hashtable<>();
+    HashMap<String, Repository> repositories = new HashMap<>();
 
     /**
-     * Метод обхода сайтов из конфигурационного файла, и вызова их обработки
+     * Метод обхода сайтов из конфигурационного файла и подготовки тасок на индексацию
      * @throws IndexingAlreadyLaunchedException если уже запущена индексация
      * **/
-    void indexAll();
+    Map<String, PageIndexator> prepareIndexingTasks();
+
+    /**
+     * Метод запуска тасок на их индексацию
+     * **/
+    void submitAll(Map<String, PageIndexator> tasksToSubmit, boolean shouldControlFjp);
 
     /**
      * Метод для остановки индексации сайтов
@@ -34,7 +40,7 @@ public interface IndexingService {
      * @throws ConfigSiteNotFoundException если страница находится за пределами сайтов из конфига
      * @throws IndexingAlreadyLaunchedException если уже запущена
      */
-    void indexPage(String queryUrl);
+    PageIndexator preparePageIndexingTask(String queryUrl);
 
     /**
      * @param lemmasToIndex список объектов Lemma для индексации
