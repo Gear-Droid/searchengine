@@ -2,12 +2,12 @@ package searchengine.controllers;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import searchengine.dto.requests.*;
 import searchengine.dto.responses.*;
 import searchengine.dto.statistics.StatisticsResponse;
-import searchengine.services.StatisticsService;
+import searchengine.services.statistics.StatisticsService;
 import searchengine.services.indexing.exceptions.*;
 import searchengine.services.indexing.IndexingService;
+import searchengine.services.searching.SearchingService;
 
 @RestController
 @RequestMapping("/api")
@@ -15,11 +15,14 @@ public class ApiController {
 
     private final IndexingService indexingService;
     private final StatisticsService statisticsService;
+    private final SearchingService searchingService;
 
     public ApiController(IndexingService indexingService,
-                         StatisticsService statisticsService) {
+                         StatisticsService statisticsService,
+                         SearchingService searchingService) {
         this.indexingService = indexingService;
         this.statisticsService = statisticsService;
+        this.searchingService = searchingService;
     }
 
     @GetMapping("/startIndexing")
@@ -27,7 +30,7 @@ public class ApiController {
         try {
             indexingService.indexAll();
         } catch (IndexingAlreadyLaunchedException e) {
-            return ResponseEntity.ok(new ErrorResponseDto(false, "Индексация уже запущена"));
+            return ResponseEntity.ok(new ErrorResponseDto(false, e.getLocalizedMessage()));
         }
         return ResponseEntity.ok(new SuccessResponseDto(true));
     }
@@ -37,14 +40,13 @@ public class ApiController {
         try {
             indexingService.stopAll();
         } catch (IndexingIsNotLaunchedException e) {
-            return ResponseEntity.ok(new ErrorResponseDto(false, "Индексация не запущена"));
+            return ResponseEntity.ok(new ErrorResponseDto(false, e.getLocalizedMessage()));
         }
         return ResponseEntity.ok(new SuccessResponseDto(true));
     }
 
     @PostMapping("/indexPage")
-    public ResponseEntity<? extends ResponseDto> indexPage(@RequestBody UrlRequestDto urlRequestDto) {
-        String url = urlRequestDto.getUrl();
+    public ResponseEntity<? extends ResponseDto> indexPage(@RequestParam String url) {
         try {
             indexingService.indexPage(url);
         } catch (ConfigSiteNotFoundException | IndexingAlreadyLaunchedException e) {

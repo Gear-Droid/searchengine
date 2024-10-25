@@ -1,10 +1,10 @@
-package searchengine.services;
+package searchengine.services.statistics;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Example;
 import org.springframework.stereotype.Service;
-import searchengine.config.Site;
-import searchengine.config.SitesList;
+import searchengine.config.ConfigSite;
+import searchengine.config.ConfigSiteList;
 import searchengine.dto.statistics.DetailedStatisticsItem;
 import searchengine.dto.statistics.StatisticsData;
 import searchengine.dto.statistics.StatisticsResponse;
@@ -18,7 +18,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
@@ -35,7 +34,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             ""
     };
 
-    private final SitesList sites;
+    private final ConfigSiteList sites;
 
     @Override
     public StatisticsResponse getStatistics() {
@@ -44,20 +43,15 @@ public class StatisticsServiceImpl implements StatisticsService {
         total.setIndexing(isAnySiteIndexing());
 
         List<DetailedStatisticsItem> detailed = new ArrayList<>();
-        List<Site> sitesList = sites.getSites();
-        for (Site site : sitesList) {
+        List<ConfigSite> sitesList = sites.getSites();
+        for (ConfigSite site : sitesList) {
             String url = site.getUrl();
-            DetailedStatisticsItem item = new DetailedStatisticsItem();
-            item.setName(site.getName());
-            item.setUrl(url);
 
             Optional<searchengine.model.Site> optionalSiteEntity = findSiteByUrl(url);
-            if (optionalSiteEntity.isEmpty()) {
-                item = emptyItem(item);
-            } else {
-                searchengine.model.Site siteEntity = optionalSiteEntity.get();
-                item = fillItem(item, siteEntity);
-            }
+            DetailedStatisticsItem item = new DetailedStatisticsItem();
+            optionalSiteEntity.map(value -> fillItem(item, value)).orElseGet(() -> emptyItem(item));
+            item.setName(site.getName());
+            item.setUrl(url);
 
             total.setPages(total.getPages() + item.getPages());
             total.setLemmas(total.getLemmas() + item.getLemmas());
