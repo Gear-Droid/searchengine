@@ -59,4 +59,14 @@ public class ApiController {
     public ResponseEntity<StatisticsResponse> statistics() {
         return ResponseEntity.ok(statisticsService.getStatistics());
     }
+
+    @GetMapping("/search")
+    public ResponseEntity<SearchResultResponseDto> search(@RequestParam String query,
+                                                          @RequestParam(required = false) String site,
+                                                          @RequestParam(required = false) Integer offset,
+                                                          @RequestParam(required = false) Integer limit) {
+        if (offset == null) offset = 0;
+        if (limit == null) limit = 20;
+        return ResponseEntity.ok(searchingService.getSearchResults(query, site, offset, limit));
+    }
 }

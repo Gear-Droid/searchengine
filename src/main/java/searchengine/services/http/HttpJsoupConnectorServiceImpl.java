@@ -1,21 +1,24 @@
-package searchengine.services;
+package searchengine.services.http;
 
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.http.HttpStatus;
-import searchengine.dto.PageDto;
+import org.springframework.transaction.annotation.Transactional;
+import searchengine.dto.indexing.PageDto;
 
 import java.io.IOException;
 
 @Slf4j
-public class HttpJsoupConnectorService {
+public class HttpJsoupConnectorServiceImpl implements HttpJsoupConnectorService {
 
     private static final int REQUEST_TIMEOUT = 1_000;  // (мс) таймаут перед запросами к ссылкам
     private static final String USER_AGENT = "SkillboxFinalTaskSearchBot";
     private static final String REFERER = "http://www.google.com";
 
+    @Override
+    @Transactional(readOnly = true)
     public PageDto getPageDtoFromLink(String link) {
         PageDto pageDto = new PageDto();
         pageDto.setPath(link);
