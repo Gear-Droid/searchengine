@@ -16,10 +16,12 @@ public interface LemmaRepository extends JpaRepository<Lemma, Integer> {
      * <p>каждый параметр в SQL запросе можно вставить, используя запись :ИМЯ_ПЕРЕМEННОЙ
      * перед именем двоеточие, так hibernate поймет, что надо заменить на значение переменной</p>
      */
-    @Query(value = "SELECT * from lemma where site_id = :siteId", nativeQuery = true)
+    @Query(value = "SELECT * FROM lemma WHERE site_id = :siteId", nativeQuery = true)
     Set<Lemma> findLemmasBySiteId(int siteId);
 
-    @Query(value = "SELECT COUNT(1) from lemma where site_id = :siteId", nativeQuery = true)
+    @Query(value = "SELECT COUNT(1) FROM lemma WHERE site_id = :siteId", nativeQuery = true)
     int countAllBySiteId(int siteId);
+
+    Set<Lemma> findAllByLemmaInOrderByFrequencyAsc(Set<String> lemmas);
 
 }

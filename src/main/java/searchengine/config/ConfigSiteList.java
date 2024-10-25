@@ -7,10 +7,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-@Getter
-@Setter
+@Getter @Setter
 @Component
 @ConfigurationProperties(prefix = "indexing-settings")
-public class SitesList {
-    private List<Site> sites;
+public class ConfigSiteList {
+    private List<ConfigSite> sites;
 }

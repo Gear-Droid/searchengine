@@ -3,6 +3,10 @@ package searchengine.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
+
+import java.util.Set;
 
 @Getter @Setter
 @Entity
@@ -26,4 +30,15 @@ public class Page {
 
     @Column(name = "content", nullable = false, columnDefinition = "MEDIUMTEXT")
     private String content;  // контент страницы (HTML-код)
+
+    public String getTitle() {
+        return Jsoup.parse(content).title();
+    }
+
+    public String getSnippetFromContentByLemmaValues(Set<String> lemmaValueSet) {
+        return "<b>" + Jsoup.parse(content).stream()
+                .map(Element::text)
+                .findFirst().get() + "</b>";
+    }
+
 }

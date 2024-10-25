@@ -6,6 +6,6 @@ import searchengine.model.Page;
 
 public interface PageRepository extends JpaRepository<Page, Integer> {
 
-    @Query(value = "SELECT COUNT(1) from page where site_id = :siteId", nativeQuery = true)
+    @Query(value = "SELECT COUNT(1) FROM page WHERE site_id = :siteId", nativeQuery = true)
     int countAllBySiteId(int siteId);
 }

@@ -121,4 +121,10 @@
                               constraintName="site_url"
                               tableName="site"/>
     </changeSet>
+
+    <changeSet id="8_CreateSiteLemmaUniqueConstraint" author="root">
+        <addUniqueConstraint  columnNames="site_id, lemma"
+                              constraintName="site_lemma"
+                              tableName="lemma"/>
+    </changeSet>
 </databaseChangeLog>
