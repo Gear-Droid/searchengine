@@ -9,12 +9,16 @@ import java.util.Set;
 
 public interface LemmasService {
 
-    Map<String, Integer> collectLemmas(String text);
-
     Set<String> getLemmaSet(String text);
+
+    Map<String, Integer> collectLemmas(String text);
 
     List<Lemma> handleLemmas(Map<String, Integer> pageLemmasCount, SiteDto siteDto);
 
-    void decrementFrequencyOrRemoveByIds(Set<Integer> previousLemmasIds);
+    void decrementLemmasFrequencyOrRemoveByIds(Set<Integer> previousLemmasIds);
+
+    Set<Lemma> findAllByLemmaInOrderByFrequencyAsc(Set<String> queryLemmas);
+
+    int countAllBySiteId(int siteId);
 
 }

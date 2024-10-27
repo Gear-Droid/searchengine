@@ -3,6 +3,7 @@ package searchengine.services.statistics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Example;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import searchengine.config.ConfigSite;
 import searchengine.config.ConfigSiteList;
 import searchengine.dto.statistics.DetailedStatisticsItem;
@@ -10,9 +11,9 @@ import searchengine.dto.statistics.StatisticsData;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.dto.statistics.TotalStatistics;
 import searchengine.model.SiteStatus;
-import searchengine.repositories.LemmaRepository;
 import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
+import searchengine.services.morphology.LemmasService;
 
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -23,9 +24,9 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class StatisticsServiceImpl implements StatisticsService {
 
+    private final LemmasService lemmasService;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
-    private final LemmaRepository lemmaRepository;
 
     private final static String[] statuses = { "INDEXED", "FAILED", "INDEXING" };
     private final static String[] errors = {
@@ -37,6 +38,7 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final ConfigSiteList sites;
 
     @Override
+    @Transactional(readOnly = true)
     public StatisticsResponse getStatistics() {
         TotalStatistics total = new TotalStatistics();
         total.setSites(sites.getSites().size());
@@ -95,7 +97,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         int siteId = site.getId();
         int pagesCount = pageRepository.countAllBySiteId(siteId);
         item.setPages(pagesCount);
-        int lemmasCount = lemmaRepository.countAllBySiteId(siteId);
+        int lemmasCount = lemmasService.countAllBySiteId(siteId);
         item.setLemmas(lemmasCount);
         item.setStatus(site.getStatus().name());
         if (item.getStatus().equals(statuses[1])) item.setError(site.getLastError());

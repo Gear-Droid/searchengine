@@ -37,7 +37,7 @@ public class SiteDto {
 
     public void setFailed(String errorText) {
         status = SiteStatus.FAILED;
-        lastError = errorText;
+        if (errorText != null) lastError = errorText;
         updateStatusTime();
     }
 

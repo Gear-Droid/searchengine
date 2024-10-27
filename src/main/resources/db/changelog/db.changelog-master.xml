@@ -122,9 +122,15 @@
                               tableName="site"/>
     </changeSet>
 
-    <changeSet id="8_CreateSiteLemmaUniqueConstraint" author="root">
+    <changeSet id="8_CreateSiteIdLemmaUniqueConstraint" author="root">
         <addUniqueConstraint  columnNames="site_id, lemma"
-                              constraintName="site_lemma"
+                              constraintName="siteId_lemma"
                               tableName="lemma"/>
+    </changeSet>
+
+    <changeSet id="9_CreatePageIdLemmaIdUniqueConstraint" author="root">
+        <addUniqueConstraint  columnNames="page_id, lemma_id"
+                              constraintName="pageId_lemmaId"
+                              tableName="index"/>
     </changeSet>
 </databaseChangeLog>

@@ -19,7 +19,6 @@ import java.util.stream.Collectors;
 public class SearchingServiceImpl implements SearchingService {
 
     private final LemmasService lemmasService;
-    private final LemmaRepository lemmaRepository;
     private final IndexRepository indexRepository;
     private final PageRepository pageRepository;
 
@@ -40,8 +39,7 @@ public class SearchingServiceImpl implements SearchingService {
         if (queryLemmasCount.isEmpty())
             return getErrorSearchResultResponseDto("Не удалось распознать текст поиска");
 
-        lemmaRepository.flush();
-        Set<Lemma> foundLemmas = lemmaRepository
+        Set<Lemma> foundLemmas = lemmasService
                 .findAllByLemmaInOrderByFrequencyAsc(queryLemmas);  // поиск по леммам из поисковой строки
 
         if (queryLemmasCount.size() > 2) {  // кол-во уникальных слов поиска больше 2? -> избавляемся от популярных

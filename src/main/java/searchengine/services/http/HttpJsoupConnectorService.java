@@ -4,6 +4,8 @@ import searchengine.dto.indexing.PageDto;
 
 public interface HttpJsoupConnectorService {
 
-    PageDto getPageDtoFromLink(String link);
+    int REQUEST_TIMEOUT = 1_000;  // (мс) таймаут перед запросами к ссылкам
+
+    PageDto getPageDtoFromLink(String link) throws InterruptedException;
 
 }

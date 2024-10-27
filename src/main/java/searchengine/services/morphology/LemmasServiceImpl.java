@@ -32,9 +32,9 @@ public class LemmasServiceImpl implements LemmasService {
         this.lemmaRepository = lemmaRepository;
     }
 
-//    private LemmasServiceImpl(){
-//        throw new RuntimeException("Disallow construct");
-//    }
+    private LemmasServiceImpl(){
+        throw new RuntimeException("Disallow construct");
+    }
 
     /**
      * Метод разделяет текст на слова, находит все леммы и считает их количество.
@@ -116,35 +116,34 @@ public class LemmasServiceImpl implements LemmasService {
     public List<Lemma> handleLemmas(Map<String, Integer> pageLemmasCount, SiteDto siteDto) {
         Set<String> foundPageLemmas = pageLemmasCount.keySet();  // все леммы, найденные на странице
 
-        lemmaRepository.flush();
         Set<Lemma> existingSiteLemmaEntities = lemmaRepository
                 .findLemmasBySiteId(siteDto.getId());  // все записи лемм текущего сайта из БД
-        Set<String> existingSiteLemmas = getStringLemmasSet(existingSiteLemmaEntities);  // в String set
 
+        Set<String> existingSiteLemmas = getStringLemmasSet(existingSiteLemmaEntities);  // в String set
         Set<String> newPageLemmas = getExclusion(foundPageLemmas, existingSiteLemmas);  // новые леммы
-        List<Lemma> l1 = initAndSaveNewLemmas(newPageLemmas, siteDto);  // сохраняем в БД
 
         Set<String> existingPageLemmas = getIntersection(
                 foundPageLemmas, existingSiteLemmas);  // уже записанные в БД леммы
         Set<Lemma> lemmasToIncrement = existingSiteLemmaEntities.stream()
                 .filter(lemma -> existingPageLemmas.contains(lemma.getLemma()))
                 .collect(Collectors.toSet());  // в Lemma set
-        List<Lemma> l2 = incrementAndSaveExistingPageLemmas(lemmasToIncrement, siteDto);  // сохраняем в БД
+
+        List<Lemma> newLemmas = initAndSaveNewPageLemmas(newPageLemmas, siteDto);  // сохраняем в БД
+        List<Lemma> existingLemmas = incrementAndSaveExistingPageLemmas(lemmasToIncrement, siteDto);  // сохраняем в БД
 
         ArrayList<Lemma> lemmasToIndex = new ArrayList<>();
-        lemmasToIndex.addAll(l1);  // l1 - список новых лемм, найденных на странице
-        lemmasToIndex.addAll(l2);  // l2 - список лемм, частота которых увеличилась на 1
+        lemmasToIndex.addAll(newLemmas);  // список новых лемм, найденных на странице
+        lemmasToIndex.addAll(existingLemmas);  // список лемм, частота которых увеличилась на 1
         return lemmasToIndex;
     }
 
     @Override
     @Transactional(isolation = Isolation.SERIALIZABLE)
-    public void decrementFrequencyOrRemoveByIds(Set<Integer> previousLemmasIds) {
+    public void decrementLemmasFrequencyOrRemoveByIds(Set<Integer> previousLemmasIds) {
         if (previousLemmasIds.isEmpty()) return;
 
         Set<Integer> idsToDelete = new HashSet<>();
         Set<Lemma> lemmasToSave = new HashSet<>();
-        lemmaRepository.flush();
         List<Lemma> foundLemmas = lemmaRepository.findAllById(previousLemmasIds);
         for (Lemma lemma : foundLemmas) {
             int newValue = lemma.getFrequency() - 1;
@@ -155,11 +154,23 @@ public class LemmasServiceImpl implements LemmasService {
             lemma.setFrequency(newValue);
             lemmasToSave.add(lemma);
         }
-        lemmaRepository.saveAll(lemmasToSave);
+        lemmaRepository.saveAllAndFlush(lemmasToSave);
         lemmaRepository.deleteAllById(idsToDelete);
         lemmaRepository.flush();
 
         log.info("Обработали " + previousLemmasIds.size() + " лемм с предыдущей индексации сайта");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Set<Lemma> findAllByLemmaInOrderByFrequencyAsc(Set<String> queryLemmas) {
+        return lemmaRepository.findAllByLemmaInOrderByFrequencyAsc(queryLemmas);  // поиск по леммам из поисковой строки
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public int countAllBySiteId(int siteId) {
+        return lemmaRepository.countAllBySiteId(siteId);
     }
 
     private String[] arrayContainsRussianWords(String text) {
@@ -220,7 +231,8 @@ public class LemmasServiceImpl implements LemmasService {
         return exclusion;
     }
 
-    private List<Lemma> initAndSaveNewLemmas(Set<String> newPageLemmas, SiteDto siteDto) {
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    private List<Lemma> initAndSaveNewPageLemmas(Set<String> newPageLemmas, SiteDto siteDto) {
         List<Lemma> lemmasToSave = new ArrayList<>();
 
         if (newPageLemmas.isEmpty()) {
@@ -241,11 +253,10 @@ public class LemmasServiceImpl implements LemmasService {
         return lemmaRepository.saveAllAndFlush(lemmasToSave);
     }
 
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     private List<Lemma> incrementAndSaveExistingPageLemmas(
             Set<Lemma> lemmasEntitiesToIncrement, SiteDto siteDto) {
-        if (lemmasEntitiesToIncrement.isEmpty()) {
-            return List.of();
-        }
+        if (lemmasEntitiesToIncrement.isEmpty()) return List.of();
 
         Set<String> lemmasToIncrement = lemmasEntitiesToIncrement.stream()
                 .map(Lemma::getLemma)
@@ -259,5 +270,4 @@ public class LemmasServiceImpl implements LemmasService {
                 String.join(", ", lemmasToIncrement));
         return lemmaRepository.saveAllAndFlush(lemmasEntitiesToIncrement);
     }
-
 }

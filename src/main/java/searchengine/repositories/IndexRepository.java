@@ -11,10 +11,11 @@ import java.util.Set;
 
 public interface IndexRepository extends JpaRepository<Index, Integer> {
 
+    Set<Index> findAllByPageId(Integer pageId);
+
     Set<Index> findByLemmaIdIn(Set<Integer> lemmaIdList);
 
-    @Query(name = "nativeQuery", value =
-            "WITH pages_ranks_sum AS (" +
+    @Query(value = "WITH pages_ranks_sum AS (" +
                 "SELECT page_id, SUM(`rank`) AS rank_sum " +
                 "FROM `index` AS i " +
                 "JOIN lemma AS l on i.lemma_id = l.id " +

@@ -31,8 +31,8 @@ public class ApiController {
     @GetMapping("/startIndexing")
     public ResponseEntity<? extends ResponseDto> startIndexing() {
         try {
-            Map<String, PageIndexator> indexationTasks = indexingService.prepareIndexingTasks();
-            indexingService.submitAll(indexationTasks, true);
+            Map<String, PageIndexator> indexingTasks = indexingService.prepareIndexingTasks();
+            indexingService.submitAll(indexingTasks, true);
         } catch (IndexingAlreadyLaunchedException e) {
             return ResponseEntity.ok(new ErrorResponseDto(false, e.getLocalizedMessage()));
         }

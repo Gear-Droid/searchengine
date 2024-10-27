@@ -3,6 +3,7 @@ package searchengine.services.indexing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.repository.Repository;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.dto.indexing.*;
 import searchengine.model.*;
@@ -15,6 +16,8 @@ import java.util.*;
 public interface IndexingService {
 
     Logger log = LoggerFactory.getLogger(IndexingService.class);
+
+    String INDEXING_STOPPED_BY_USER_MESSAGE = "Индексация остановлена пользователем";
 
     HashMap<String, Repository> repositories = new HashMap<>();
 
@@ -47,7 +50,7 @@ public interface IndexingService {
      * @param pageLemmasCount key-value мапа текущей страницы: "лемма" - "кол-во на странице"
      * @param pageDto Dto с инфой страницы
      */
-    @Transactional
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     static int indexLemmas(IndexRepository indexRepository,
                            List<Lemma> lemmasToIndex,
                            Map<String, Integer> pageLemmasCount,

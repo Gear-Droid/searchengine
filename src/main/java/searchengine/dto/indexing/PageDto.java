@@ -7,8 +7,7 @@ import org.jsoup.select.Elements;
 import searchengine.model.Page;
 import searchengine.model.Site;
 
-@Getter
-@Setter
+@Getter @Setter
 @NoArgsConstructor
 public class PageDto {
 
@@ -28,6 +27,7 @@ public class PageDto {
 
     public Page toEntity() {
         Page page = new Page();
+        page.setId(id);
         page.setSite(site);
         page.setPath(path);
         page.setCode(code);

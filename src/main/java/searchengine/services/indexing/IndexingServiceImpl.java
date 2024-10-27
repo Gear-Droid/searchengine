@@ -16,9 +16,7 @@ import searchengine.services.indexing.utils.PageIndexator;
 import searchengine.services.morphology.LemmasService;
 
 import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -47,9 +45,13 @@ public class IndexingServiceImpl implements IndexingService {
                 .toList();
         Map<String, PageIndexator> tasks = new HashMap<>();
         for (ConfigSite configSite : sitesToProcess) {
-            PageIndexator task = prepareIndexingTask(
-                    configSite, configSite.getUrl(), false);
-            tasks.put(configSite.getUrl(), task);
+            try {
+                PageIndexator task = prepareIndexingTask(
+                        configSite, configSite.getUrl(), false);
+                tasks.put(configSite.getUrl(), task);
+            } catch (IndexingAlreadyLaunchedException e) {
+                throw new IndexingAlreadyLaunchedException("Индексация уже запущена");
+            }
         }
         return tasks;
     }
@@ -82,6 +84,12 @@ public class IndexingServiceImpl implements IndexingService {
         }
 
         indexingSites.forEach(this::stopSiteIndexing);
+
+        try {
+            fjpMap.forEach((url, fjp) -> fjp.shutdownNow());
+        } catch (RuntimeException e) {
+            log.error("Поймали ошибку при завершении задач FJP: " + e.getLocalizedMessage());
+        }
     }
 
     /**
@@ -90,6 +98,7 @@ public class IndexingServiceImpl implements IndexingService {
      * **/
     private PageIndexator prepareIndexingTask(ConfigSite configSite, String url, boolean onlyThisPageIndexing) {
         SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
+        url = url.endsWith("/") ? url : url.concat("/");
 
         if (onlyThisPageIndexing) log.info("Выполняется индексация/обновление страницы \"" + url + "\"");
         else log.info("Выполняется обработка сайта \"" + configSite.getName() + "\" с url = " + url);
@@ -101,36 +110,21 @@ public class IndexingServiceImpl implements IndexingService {
 
         Site siteEntity = IndexingService.siteDtoToSite(siteDto);
         siteDto = IndexingService.siteToSiteDto(siteRepository.saveAndFlush(siteEntity));
-        return initPageIndexatorTask(siteDto, url, onlyThisPageIndexing);
+
+        return new PageIndexator(siteDto, url, lemmasService, onlyThisPageIndexing);
     }
 
     /**
      * Метод остановки индексации конкретного сайта
      * @throws IndexingIsNotLaunchedException если нет индексируемых сайтов
      */
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     private void stopSiteIndexing(Site siteToStop) {
         String url = siteToStop.getUrl();
-        if (fjpMap.containsKey(url)) {
-            ForkJoinPool fjp = fjpMap.get(url);
-            fjp.shutdownNow();
-
-            boolean terminationSuccess = true;
-            try {
-                terminationSuccess = fjp.awaitTermination(3_000, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                log.error("Не удалось дождаться завершения fjp сайта из-за ошибки прерывания: " + e);
-            }
-
-            if (!terminationSuccess) {
-                log.warn("Не удалось дождаться завершения остановки сайта!");
-            }
-        }
-
-        String errorText = "Индексация остановлена пользователем";
         SiteDto siteDto = IndexingService.siteToSiteDto(siteToStop);
-        siteDto.setFailed(errorText);
+        siteDto.setFailed(INDEXING_STOPPED_BY_USER_MESSAGE);
         siteRepository.saveAndFlush(IndexingService.siteDtoToSite(siteDto));
-        log.info("[" + url + "] " + errorText);
+        log.warn("[" + url + "] " + INDEXING_STOPPED_BY_USER_MESSAGE);
     }
 
     private Optional<Site> getSiteEntityByConfig(ConfigSite configSite) {
@@ -203,12 +197,7 @@ public class IndexingServiceImpl implements IndexingService {
         siteRepository.flush();
     }
 
-    private PageIndexator initPageIndexatorTask(SiteDto siteDto, String url, boolean onlyThisPageIndexing) {
-        PageIndexator indexator = new PageIndexator(siteDto, url, lemmasService, onlyThisPageIndexing);
-        indexator.setSiteTaskList(new CopyOnWriteArrayList<>());
-        return indexator;
-    }
-
+    @Transactional(isolation = Isolation.SERIALIZABLE)
     private List<Site> getIndexingSiteList() {
         Site siteToFound = new Site();
         siteToFound.setStatus(SiteStatus.INDEXING);
