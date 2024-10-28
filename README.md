@@ -47,11 +47,13 @@ https://github.com/Gear-Droid/searchengine.git
 - Метод без параметров
 
 **Формат ответа в случае успеха**:
+
 {
 	'result': true
 }
 
 **Формат ответа в случае ошибки**:
+
 {
 	'result': false,
 	'error': "Индексация уже запущена"
