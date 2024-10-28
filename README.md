@@ -69,6 +69,7 @@ https://github.com/Gear-Droid/searchengine.git
 }
 
 
+
 ### Остановка текущей индексации — GET /api/stopIndexing
 
 Метод останавливает текущий процесс индексации (переиндексации). Если в настоящий момент индексация или переиндексация не происходит, метод возвращает соответствующее сообщение об ошибке. 
@@ -89,6 +90,7 @@ https://github.com/Gear-Droid/searchengine.git
 	'result': false,
 	'error': "Индексация не запущена"
 }
+
 
 
 ### Добавление или обновление отдельной страницы — POST /api/indexPage
@@ -112,6 +114,7 @@ https://github.com/Gear-Droid/searchengine.git
 	'result': false,
 	'error': "Данная страница находится за пределами сайтов, указанных в конфигурационном файле"
 }
+
 
 
 ### Статистика — GET /api/statistics
@@ -150,6 +153,7 @@ https://github.com/Gear-Droid/searchengine.git
 }
 
 
+
 ### Получение данных по поисковому запросу — GET /api/search
 
 Метод осуществляет поиск страниц по переданному поисковому запросу (параметр query).
@@ -172,8 +176,8 @@ https://github.com/Gear-Droid/searchengine.git
 	'data': [
 		{
 			"site": "http://www.site.com",
-      			"siteName": "Имя сайта",
-   			"uri": "/path/to/page/6784",
+			"siteName": "Имя сайта",
+			"uri": "/path/to/page/6784",
 			"title": "Заголовок страницы, которую выводим",
 			"snippet": "Фрагмент текста, в котором найдены совпадения, <b>выделенные жирным</b>, в формате HTML",
 			"relevance": 0.93362
