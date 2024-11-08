@@ -126,7 +126,7 @@ public class IndexingServiceImpl implements IndexingService {
         Site siteEntity = SiteMapper.INSTANCE.siteDtoToSite(siteDto);
         siteDto = SiteMapper.INSTANCE.siteToSiteDto(siteRepository.saveAndFlush(siteEntity));
 
-        return new PageIndexator(siteDto, url, lemmasService,
+        return new PageIndexator(siteDto, url, this, lemmasService,
                 siteRepository, pageRepository, indexRepository, onlyThisPageIndexing);
     }
 
@@ -135,6 +135,25 @@ public class IndexingServiceImpl implements IndexingService {
         siteDto.setFailed(INDEXING_STOPPED_BY_USER_MESSAGE);
         siteRepository.saveAndFlush(SiteMapper.INSTANCE.siteDtoToSite(siteDto));
         log.warn("[" + siteToStop.getUrl() + "] " + INDEXING_STOPPED_BY_USER_MESSAGE);
+    }
+
+    @Override
+    @Transactional
+    public int indexLemmas(IndexRepository indexRepository,
+                           List<Lemma> lemmasToIndex,
+                           Map<String, Integer> pageLemmasCount,
+                           PageDto pageDto) {
+        List<Index> indexToSaveList = new ArrayList<>();
+        for (Lemma lemma : lemmasToIndex) {
+            String lemmaValue = lemma.getLemma();
+            if (!pageLemmasCount.containsKey(lemmaValue)) {
+                log.warn("Не удалось найти лемму \"" + lemmaValue + "\" в " + pageLemmasCount);
+                continue;
+            }
+            Integer lemmaCount = pageLemmasCount.get(lemmaValue);
+            indexToSaveList.add(new Index(null, pageDto.getId(), lemma.getId(), lemmaCount.floatValue()));
+        }
+        return indexRepository.saveAllAndFlush(indexToSaveList).size();
     }
 
 }

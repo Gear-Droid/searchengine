@@ -24,7 +24,7 @@ spring:
 #      auto-commit: true
 
   jpa:
-    show-sql: true
+#    show-sql: true
     hibernate:
       ddl-auto: none
     open-in-view: false
@@ -43,6 +43,6 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.xml
     drop-first: false
 
-logging:
-  level:
-    root: WARN
+#logging:
+#  level:
+#    root: WARN

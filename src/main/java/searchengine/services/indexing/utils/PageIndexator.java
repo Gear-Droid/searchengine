@@ -31,6 +31,7 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
     private static final String taskProcessingErrorMessage = "При выполнении задачи произошла ошибка: %s";
 
     @Getter public final String currentLink;  // текущая полная ссылка
+    private final IndexingService indexingService;  // сервис индексации
     private final LemmasService lemmasService;  // сервис лемматизации
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
@@ -44,7 +45,8 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
 
     /* Общий конструктор для потомков и корня сайта */
     public PageIndexator(SiteDto siteDto, String currentLink, HttpJsoupConnector httpJsoupConnector,
-                         CopyOnWriteArrayList<PageIndexator> siteTaskList, LemmasService lemmasService,
+                         CopyOnWriteArrayList<PageIndexator> siteTaskList,
+                         IndexingService indexingService, LemmasService lemmasService,
                          SiteRepository siteRepository, PageRepository pageRepository, IndexRepository indexRepository,
                          boolean onlyThisPageIndex) {
         this.siteRepository = siteRepository;
@@ -56,16 +58,18 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
         siteTaskList.add(this);
         this.currentLink = currentLink;
         this.httpJsoupConnector = httpJsoupConnector;
+        this.indexingService = indexingService;
         this.lemmasService = lemmasService;
         this.onlyThisPageIndex = onlyThisPageIndex;
     }
 
     /* Конструктор для корня индексации */
-    public PageIndexator(SiteDto siteDto, String currentLink, LemmasService lemmasService,
+    public PageIndexator(SiteDto siteDto, String currentLink,
+                         IndexingService indexingService, LemmasService lemmasService,
                          SiteRepository siteRepository, PageRepository pageRepository, IndexRepository indexRepository,
                          boolean onlyThisPageIndex) {
         this(siteDto, currentLink, new HttpJsoupConnector(), new CopyOnWriteArrayList<>(),
-                lemmasService, siteRepository, pageRepository, indexRepository, onlyThisPageIndex);
+                indexingService, lemmasService, siteRepository, pageRepository, indexRepository, onlyThisPageIndex);
     }
 
     @Override
@@ -211,7 +215,7 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
     private void indexPage(PageDto pageDto) {
         Map<String, Integer> foundLemmas = lemmasService.collectLemmas(pageDto.getContent());
         List<Lemma> lemmaEntitiesToIndex = lemmasService.handleLemmas(siteDto, foundLemmas.keySet());
-        int count = IndexingService.indexLemmas(indexRepository, lemmaEntitiesToIndex, foundLemmas, pageDto);
+        int count = indexingService.indexLemmas(indexRepository, lemmaEntitiesToIndex, foundLemmas, pageDto);
         log.info("Проиндексировали " + count + " новых лемм со страницы \"" +
                 pageDto.getPath() +"\" сайта "+ siteDto.getUrl());
     }
@@ -232,7 +236,8 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
         log.info("На странице [" + currentLink + "] найдено " + nextLinksToIndex.size() + " уникальных ссылок");
         nextLinksToIndex.removeAll(getExistingAndProcessingSiteLinks());
         return nextLinksToIndex.stream()
-                .map(link -> new PageIndexator(siteDto, link, httpJsoupConnector, siteTaskList, lemmasService,
+                .map(link -> new PageIndexator(siteDto, link, httpJsoupConnector, siteTaskList,
+                        indexingService, lemmasService,
                         siteRepository, pageRepository, indexRepository, false))
                 .toList();
     }
