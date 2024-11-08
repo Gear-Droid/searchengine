@@ -1,17 +1,17 @@
 package searchengine.services.indexing;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Example;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.config.*;
 import searchengine.dto.indexing.*;
+import searchengine.exceptions.ConfigSiteNotFoundException;
+import searchengine.exceptions.IndexingAlreadyLaunchedException;
+import searchengine.exceptions.IndexingIsNotLaunchedException;
+import searchengine.mappers.SiteMapper;
 import searchengine.model.*;
 import searchengine.repositories.*;
-import searchengine.services.indexing.exceptions.*;
 import searchengine.services.indexing.utils.PageIndexator;
 import searchengine.services.morphology.LemmasService;
 
@@ -23,120 +23,68 @@ import java.util.concurrent.ForkJoinPool;
 @RequiredArgsConstructor
 public class IndexingServiceImpl implements IndexingService {
 
-    private final ConfigSiteList sites;  // сайты из конфигурационного файла
     private final LemmasService lemmasService;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
     private final IndexRepository indexRepository;
-
-    private final Map<String, ForkJoinPool> fjpMap =
-            new HashMap<>();  // мапа ForkJoinPool'ов по индексируемым сайтам (url - fjp)
-
-    @PostConstruct
-    public void postConstructRoutine() {
-        IndexingService.repositories.put("siteRepository", siteRepository);
-        IndexingService.repositories.put("pageRepository", pageRepository);
-        IndexingService.repositories.put("indexRepository", indexRepository);
-    }
-
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    public Map<String, PageIndexator> prepareIndexingTasks() {
-        List<ConfigSite> sitesToProcess = sites.getSites().stream()
-                .toList();
-        Map<String, PageIndexator> tasks = new HashMap<>();
-        for (ConfigSite configSite : sitesToProcess) {
-            try {
-                PageIndexator task = prepareIndexingTask(
-                        configSite, configSite.getUrl(), false);
-                tasks.put(configSite.getUrl(), task);
-            } catch (IndexingAlreadyLaunchedException e) {
-                throw new IndexingAlreadyLaunchedException("Индексация уже запущена");
-            }
-        }
-        return tasks;
-    }
+    private final ConfigSiteList sites;  // сайты из конфигурационного файла
+    private ForkJoinPool fjp = new ForkJoinPool();  // ForkJoinPool для контроля за индексируемыми сайтами
 
     @Override
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    public PageIndexator preparePageIndexingTask(String queryUrl) {
-        ConfigSite configSite = getConfigSiteByUrlOrThrowConfigSiteNotFoundException(queryUrl);
-        return prepareIndexingTask(configSite, queryUrl, true);
-    }
-
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    public void submitAll(Map<String, PageIndexator> tasksToSubmit, boolean shouldControlFjp) {
-        tasksToSubmit.forEach((url, task) -> {
-            ForkJoinPool fjp = new ForkJoinPool();
-            fjpMap.put(url, fjp);  // для последующего контроля
-            fjp.submit(task);  // процесс не дожидается завершения таски
-        });
-    }
-
-    @Override
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    public void stopAll() {
-        List<Site> indexingSites = getIndexingSiteList();
-
-        if (indexingSites.isEmpty()) {
-            String message = "Индексация не запущена";
-            log.warn(message);
-            throw new IndexingIsNotLaunchedException(message);
-        }
-
-        indexingSites.forEach(this::stopSiteIndexing);
-
+    @Transactional
+    public List<PageIndexator> initSitesIndexingTasks() {
         try {
-            fjpMap.forEach((url, fjp) -> fjp.shutdownNow());
-        } catch (RuntimeException e) {
-            log.error("Поймали ошибку при завершении задач FJP: " + e.getLocalizedMessage());
+            return sites.getSites().stream()
+                    .map(this::initIndexingTask)
+                    .toList();
+        } catch (IndexingAlreadyLaunchedException e) {
+            throw new IndexingAlreadyLaunchedException("Индексация уже запущена");
         }
     }
 
-    /**
-     * Метод запуска индексации с параметрами
-     * @throws IndexingAlreadyLaunchedException если уже запущена
-     * **/
-    private PageIndexator prepareIndexingTask(ConfigSite configSite, String url, boolean onlyThisPageIndexing) {
-        SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
-        url = url.endsWith("/") ? url : url.concat("/");
-
-        if (onlyThisPageIndexing) log.info("Выполняется индексация/обновление страницы \"" + url + "\"");
-        else log.info("Выполняется обработка сайта \"" + configSite.getName() + "\" с url = " + url);
-
-        if (!onlyThisPageIndexing && siteDto.getId() != null) {
-            removeSiteFromRepository(siteDto);  // очищаем рез-ты предыдущей индексации сайта
-            siteDto.setId(null);
-        }
-
-        Site siteEntity = IndexingService.siteDtoToSite(siteDto);
-        siteDto = IndexingService.siteToSiteDto(siteRepository.saveAndFlush(siteEntity));
-
-        return new PageIndexator(siteDto, url, lemmasService, onlyThisPageIndexing);
+    @Override
+    @Transactional
+    public PageIndexator initPageIndexingTask(String queryUrl) {
+        ConfigSite configSite = getConfigSiteByUrlOrThrowConfigSiteNotFoundException(queryUrl);
+        log.info("Выполняется индексация/обновление страницы \"" + queryUrl + "\"");
+        return initIndexingTask(configSite, queryUrl, true);
     }
 
-    /**
-     * Метод остановки индексации конкретного сайта
-     * @throws IndexingIsNotLaunchedException если нет индексируемых сайтов
-     */
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    private void stopSiteIndexing(Site siteToStop) {
-        String url = siteToStop.getUrl();
-        SiteDto siteDto = IndexingService.siteToSiteDto(siteToStop);
-        siteDto.setFailed(INDEXING_STOPPED_BY_USER_MESSAGE);
-        siteRepository.saveAndFlush(IndexingService.siteDtoToSite(siteDto));
-        log.warn("[" + url + "] " + INDEXING_STOPPED_BY_USER_MESSAGE);
+    @Override
+    @Transactional
+    public void submitAll(List<PageIndexator> tasksToSubmit) {
+        fjp = new ForkJoinPool();
+        tasksToSubmit.forEach(fjp::submit);  // процесс не дожидается завершения таски
+    }
+
+    @Override
+    @Transactional
+    public void stopAll() {
+        List<Site> indexingSites = siteRepository.findAllByStatus(SiteStatus.INDEXING);
+        if (indexingSites.isEmpty()) throw new IndexingIsNotLaunchedException("Индексация не запущена");
+        indexingSites.forEach(this::stopSiteIndexing);
+        fjp.shutdownNow();
+    }
+
+    private ConfigSite getConfigSiteByUrlOrThrowConfigSiteNotFoundException(String url) {
+        return sites.getSites().stream()
+                .filter(configSite -> url.contains(configSite.getUrl()))
+                .findFirst()
+                .orElseThrow(() -> new ConfigSiteNotFoundException("Данная страница находится за пределами сайтов," +
+                        " указанных в конфигурационном файле! Сверьте \"https://\" и \"www.\"" +
+                        " А также проверьте конфигурационный файл на наличие сайта в нем!"));
+    }
+
+    private PageIndexator initIndexingTask(ConfigSite configSite) {
+        log.info("Выполняется обработка сайта \"" + configSite.getName() + "\" с url = " + configSite.getUrl());
+        return initIndexingTask(configSite, configSite.getUrl(), false);
     }
 
     private Optional<Site> getSiteEntityByConfig(ConfigSite configSite) {
-        Site site = new Site();
-        String configSiteUrl = configSite.getUrl();
-        site.setUrl(configSiteUrl);
-        Optional<Site> optionalSite = siteRepository.findOne(Example.of(site));  // поиск сайта по url
-
+        Optional<Site> optionalSite = siteRepository.findOneByUrl(configSite.getUrl());  // поиск сайта по url
         if (optionalSite.isEmpty()) {
-            log.info("Не удалось найти сайт с url = " + configSiteUrl + " в БД! Индексация будет запущена впервые.");
+            log.info("Не удалось найти сайт с url = " + configSite.getUrl() + " в БД! Индексация запущена впервые.");
         }
-
         return optionalSite;
     }
 
@@ -147,13 +95,9 @@ public class IndexingServiceImpl implements IndexingService {
         return siteDto;
     }
 
-    /**
-     * Функция получает сайт из БД или создает новый siteDto
-     * @throws IndexingAlreadyLaunchedException если уже запущена индексация
-     * **/
     private SiteDto initSiteDtoFromRepositoryOrCreateNew(ConfigSite configSite) {
-        Optional<Site> optionalSite = getSiteEntityByConfig(configSite);
-        SiteDto siteDto = optionalSite.map(IndexingService::siteToSiteDto)
+        SiteDto siteDto = getSiteEntityByConfig(configSite)
+                .map(SiteMapper.INSTANCE::siteToSiteDto)
                 .orElseGet(() -> createNewSiteDtoFromConfig(configSite));
 
         if (siteDto.getStatus() == SiteStatus.INDEXING) {  // проверяем индексируется ли сайт
@@ -166,42 +110,31 @@ public class IndexingServiceImpl implements IndexingService {
         return siteDto;
     }
 
-    /**
-     * Функция получает сайт из конфигурации
-     * @throws ConfigSiteNotFoundException если страница находится за пределами сайтов из конфига
-     * **/
-    private ConfigSite getConfigSiteByUrlOrThrowConfigSiteNotFoundException(String url) {
-        List<ConfigSite> configSites = sites.getSites().stream()
-                .toList();
-        for (ConfigSite configSite : configSites) {
-            if (url.contains(configSite.getUrl())) {
-                return configSite;
-            }
-        }
-        String message = "Данная страница находится за пределами сайтов," +
-                "указанных в конфигурационном файле! Сверьте \"https://\" и \"www.\"" +
-                " А также проверьте конфигурационный файл на наличие сайта в нем!";
-        log.warn("[" + url + "] " + message);
-        throw new ConfigSiteNotFoundException(message);
-    }
-
-    /**
-     * Метод для очистки прошлых записей индексации сайта
-     * **/
     private void removeSiteFromRepository(SiteDto siteDto) {
-        Site site = new Site();
-        site.setUrl(siteDto.getUrl());
-        Example<Site> siteExample = Example.of(site);
-        List<Site> foundPages = siteRepository.findAll(siteExample);
+        List<Site> foundPages = siteRepository.findAllByUrl(siteDto.getUrl());
         siteRepository.deleteAll(foundPages);  // очищаем прошлые записи индексации страниц сайта
         siteRepository.flush();
     }
 
-    @Transactional(isolation = Isolation.SERIALIZABLE)
-    private List<Site> getIndexingSiteList() {
-        Site siteToFound = new Site();
-        siteToFound.setStatus(SiteStatus.INDEXING);
-        return siteRepository.findAll(Example.of(siteToFound));
+    private PageIndexator initIndexingTask(ConfigSite configSite, String url, boolean onlyThisPageIndexing) {
+        url = url.endsWith("/") ? url : url.concat("/");
+        SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
+
+        if (!onlyThisPageIndexing && siteDto.getId() != null) removeSiteFromRepository(siteDto);
+
+        siteDto.setId(null);
+        Site siteEntity = SiteMapper.INSTANCE.siteDtoToSite(siteDto);
+        siteDto = SiteMapper.INSTANCE.siteToSiteDto(siteRepository.saveAndFlush(siteEntity));
+
+        return new PageIndexator(siteDto, url, lemmasService,
+                siteRepository, pageRepository, indexRepository, onlyThisPageIndexing);
+    }
+
+    private void stopSiteIndexing(Site siteToStop) {
+        SiteDto siteDto = SiteMapper.INSTANCE.siteToSiteDto(siteToStop);
+        siteDto.setFailed(INDEXING_STOPPED_BY_USER_MESSAGE);
+        siteRepository.saveAndFlush(SiteMapper.INSTANCE.siteDtoToSite(siteDto));
+        log.warn("[" + siteToStop.getUrl() + "] " + INDEXING_STOPPED_BY_USER_MESSAGE);
     }
 
 }

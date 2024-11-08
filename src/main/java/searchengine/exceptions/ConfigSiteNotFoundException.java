@@ -1,4 +1,4 @@
-package searchengine.services.indexing.exceptions;
+package searchengine.exceptions;
 
 public class ConfigSiteNotFoundException extends RuntimeException {
 

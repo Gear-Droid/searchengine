@@ -1,14 +1,11 @@
 package searchengine.dto.indexing;
 
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.Data;
 import org.jsoup.select.Elements;
 import searchengine.model.Page;
 import searchengine.model.Site;
 
-@Getter @Setter
-@NoArgsConstructor
+@Data
 public class PageDto {
 
     private Integer id;
@@ -23,7 +20,7 @@ public class PageDto {
 
     private String content = "";  // контент страницы (HTML-код)
 
-    private Elements links = new Elements();
+    private Elements links;  // ссылки на другие страницы
 
     public Page toEntity() {
         Page page = new Page();

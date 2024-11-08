@@ -6,10 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.config.ConfigSite;
 import searchengine.config.ConfigSiteList;
-import searchengine.dto.statistics.DetailedStatisticsItem;
-import searchengine.dto.statistics.StatisticsData;
-import searchengine.dto.statistics.StatisticsResponse;
-import searchengine.dto.statistics.TotalStatistics;
+import searchengine.dto.statistics.*;
 import searchengine.model.SiteStatus;
 import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
@@ -27,13 +24,6 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final LemmasService lemmasService;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
-
-    private final static String[] statuses = { "INDEXED", "FAILED", "INDEXING" };
-    private final static String[] errors = {
-            "Ошибка индексации: главная страница сайта не доступна",
-            "Ошибка индексации: сайт не доступен",
-            ""
-    };
 
     private final ConfigSiteList sites;
 
@@ -60,13 +50,8 @@ public class StatisticsServiceImpl implements StatisticsService {
             detailed.add(item);
         }
 
-        StatisticsResponse response = new StatisticsResponse();
-        StatisticsData data = new StatisticsData();
-        data.setTotal(total);
-        data.setDetailed(detailed);
-        response.setStatistics(data);
-        response.setResult(true);
-        return response;
+        StatisticsData data = new StatisticsData(total, detailed);
+        return new StatisticsResponse(true, data);
     }
 
     private boolean isAnySiteIndexing() {
@@ -87,20 +72,17 @@ public class StatisticsServiceImpl implements StatisticsService {
     private DetailedStatisticsItem emptyItem(DetailedStatisticsItem item) {
         item.setPages(0);
         item.setLemmas(0);
-        item.setStatus(statuses[1]);
-        item.setError(errors[2]);
+        item.setStatus(SiteStatus.FAILED.name());
+        item.setError("");
         item.setStatusTime(System.currentTimeMillis());
         return item;
     }
 
     private DetailedStatisticsItem fillItem(DetailedStatisticsItem item, searchengine.model.Site site) {
-        int siteId = site.getId();
-        int pagesCount = pageRepository.countAllBySiteId(siteId);
-        item.setPages(pagesCount);
-        int lemmasCount = lemmasService.countAllBySiteId(siteId);
-        item.setLemmas(lemmasCount);
+        item.setPages(pageRepository.countAllBySiteId(site.getId()));
+        item.setLemmas(lemmasService.countAllBySiteId(site.getId()));
         item.setStatus(site.getStatus().name());
-        if (item.getStatus().equals(statuses[1])) item.setError(site.getLastError());
+        if (item.getStatus().equals(SiteStatus.FAILED.name())) item.setError(site.getLastError());
         item.setStatusTime(site.getStatusTime().toEpochSecond(ZoneOffset.UTC));
         return item;
     }

@@ -1,14 +1,10 @@
 package searchengine.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Element;
 
-import java.util.Set;
-
-@Getter @Setter
+@Data
 @Entity
 @Table(name = "page")
 public class Page {
@@ -33,12 +29,6 @@ public class Page {
 
     public String getTitle() {
         return Jsoup.parse(content).title();
-    }
-
-    public String getSnippetFromContentByLemmaValues(Set<String> lemmaValueSet) {
-        return "<b>" + Jsoup.parse(content).stream()
-                .map(Element::text)
-                .findFirst().get() + "</b>";
     }
 
 }

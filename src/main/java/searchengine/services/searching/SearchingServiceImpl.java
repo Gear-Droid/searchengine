@@ -18,74 +18,53 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SearchingServiceImpl implements SearchingService {
 
+    static final double FREQUENCY_PERCENT_FILTER = 20.;  // (в %) порог от суммы frequency поисковых лемм
+
     private final LemmasService lemmasService;
     private final IndexRepository indexRepository;
     private final PageRepository pageRepository;
-
-    private final int FREQUENCY_PERCENT_FILTER = 20;  // (в %) порог от суммы frequency поисковых лемм
 
     @Override
     @Transactional(readOnly = true)
     public SearchResultResponseDto getSearchResults(String query, String site, Integer offset, Integer limit) {
         log.info("Выполняется поиск \"" + query + "\"" + (site != null ? " по сайту: ".concat(site) : "") +
                 " с отступом: " + offset + " и лимитом: " + limit);
+        if (query.isEmpty()) return getErrorSearchResultResponseDto("Задан пустой поисковый запрос");
 
-        if (query.isEmpty())
-            return getErrorSearchResultResponseDto("Задан пустой поисковый запрос");
-
-        Map<String, Integer> queryLemmasCount = lemmasService.collectLemmas(query);
-        Set<String> queryLemmas = queryLemmasCount.keySet();  // сет лемм поиска
-
-        if (queryLemmasCount.isEmpty())
+        Set<String> queryLemmas = lemmasService.getLemmaSet(query);  // сет лемм из поиска
+        if (queryLemmas.isEmpty())
             return getErrorSearchResultResponseDto("Не удалось распознать текст поиска");
 
         Set<Lemma> foundLemmas = lemmasService
                 .findAllByLemmaInOrderByFrequencyAsc(queryLemmas);  // поиск по леммам из поисковой строки
 
-        if (queryLemmasCount.size() > 2) {  // кол-во уникальных слов поиска больше 2? -> избавляемся от популярных
-            removeVeryFrequentLemmas(queryLemmasCount, foundLemmas);
+        if (queryLemmas.size() < 3 && foundLemmas.size() > limit) {
+            removeVeryFrequentLemmas(foundLemmas);  // уникальных слов поиска меньше 3? -> убираем популярные леммы
         }
 
         Set<String> uniqueLemmasToFind = foundLemmas.stream()
                 .map(Lemma::getLemma)
                 .collect(Collectors.toSet());
         log.info("Леммы, используемые для поиска: " + String.join(", ", uniqueLemmasToFind));
-
-        List<Page> resultPages = getResultPages(foundLemmas, offset, limit);
-        return getSuccessSearchResultResponseDto(resultPages, uniqueLemmasToFind);
+        return getSuccessSearchResultResponseDto(getResultPages(foundLemmas, offset, limit), uniqueLemmasToFind);
     }
 
-    private Set<Lemma> getVeryFrequentLemmasSet(Set<Lemma> lemmas) {
-        int lemmasFrequencySum = lemmas.stream()
-                .map(Lemma::getFrequency)
-                .mapToInt(Integer::intValue)
-                .sum();
-        Set <String> vfls = lemmas.stream()
-                .filter(l -> l.getFrequency() >= lemmasFrequencySum * (FREQUENCY_PERCENT_FILTER / 100.))
-                .map(Lemma::getLemma)
-                .collect(Collectors.toSet());
-        return lemmas.stream().
-                filter(lemma -> !vfls.contains(lemma.getLemma()))
-                .collect(Collectors.toSet());
-    }
+    /**
+     * Функция удаления наиболее популярных лемм в пороговом значении FREQUENCY_PERCENT_FILTER
+     * @param foundLemmas найденные
+     * **/
+    private void removeVeryFrequentLemmas(Set<Lemma> foundLemmas) {
+        int countToRemove = (int) (foundLemmas.size() * (FREQUENCY_PERCENT_FILTER / 100.));
+        if (countToRemove == 0 || countToRemove == foundLemmas.size()) return;
 
-    private void removeVeryFrequentLemmas(Map<String, Integer> queryLemmasCount, Set<Lemma> foundLemmas) {
-        Set<Lemma> veryFrequentLemmas = getVeryFrequentLemmasSet(foundLemmas);
-        if (veryFrequentLemmas.isEmpty()) return;
-
-        Set<Lemma> lemmasToRemove = veryFrequentLemmas;
-        if (veryFrequentLemmas.size() == foundLemmas.size()) {  // если все леммы популярные
-            String minFreqLemma = veryFrequentLemmas.stream()
-                    .min(Comparator.comparing(Lemma::getFrequency)).get().getLemma();
-            lemmasToRemove = veryFrequentLemmas.stream()
-                    .filter(l -> !l.getLemma().equals(minFreqLemma))
-                    .collect(Collectors.toSet());
-        }
+        Set<Lemma> lemmasToRemove = foundLemmas.stream()
+                .sorted(Comparator.comparing(lemma -> -lemma.getFrequency()))
+                .limit(countToRemove)
+                .collect(Collectors.toSet());
         foundLemmas.removeAll(lemmasToRemove);
 
-        veryFrequentLemmas.forEach(vfl -> queryLemmasCount.remove(vfl.getLemma()));
         log.info("Избавились от популярных лемм: " +
-                String.join(", ", veryFrequentLemmas.stream()
+                String.join(", ", lemmasToRemove.stream()
                         .map(Lemma::getLemma)
                         .distinct()
                         .toList()));
@@ -95,55 +74,48 @@ public class SearchingServiceImpl implements SearchingService {
         Optional<Lemma> optionalFirstLemma = foundLemmas.stream().findFirst();
         if (optionalFirstLemma.isEmpty()) return Set.of();
 
-        String currentLemmaValue = optionalFirstLemma.get().getLemma();  // значение текущей леммы
         Set<Lemma> lemmasToFind = foundLemmas.stream()
-                .filter(lemma -> lemma.getLemma().equals(currentLemmaValue))
+                .filter(lemma -> lemma.getLemma().equals(optionalFirstLemma.get().getLemma()))
                 .collect(Collectors.toSet());  // отбираем все записи выбранной леммы в БД
         foundLemmas.removeAll(lemmasToFind);  // убираем выбранные леммы из foundLemmas
 
-        Set<Integer> lemmaIdListToFind = lemmasToFind.stream()
+        Set<Index> indexes = indexRepository.findByLemmaIdIn(lemmasToFind.stream()
                 .map(Lemma::getId)
-                .collect(Collectors.toSet());
-        Set<Index> indexes = indexRepository.findByLemmaIdIn(lemmaIdListToFind);  // индексы с текущей леммой
+                .collect(Collectors.toSet()));  // индексы с текущей леммой
 
         Set<Integer> foundPageIdSet = indexes.stream()
                 .map(Index::getPageId)
                 .collect(Collectors.toSet());  // страницы с текущей леммой
 
         if (foundLemmas.isEmpty()) return foundPageIdSet;
-
-        Set<Integer> nextLemmaIndexFindResult =
-                recursivePageIdSetIntersectionByLemmaIds(foundLemmas);  // вызов обработки следующей леммы
-        foundPageIdSet.retainAll(nextLemmaIndexFindResult);  // пересекаем прошлые страницы с текущими
-
+        foundPageIdSet.retainAll(recursivePageIdSetIntersectionByLemmaIds(foundLemmas));  // пересекаем леммы
         return foundPageIdSet;
-    }
-
-    private SearchResponseData getSearchResponseData(Page resultPage, Set<String> lemmasToFind) {
-        SearchResponseData pageData = new SearchResponseData();
-        Site pageSite = resultPage.getSite();
-        pageData.setSite(pageSite.getUrl());
-        pageData.setSiteName(pageSite.getName());
-        pageData.setUri(resultPage.getPath());
-        pageData.setTitle(resultPage.getTitle());
-        pageData.setSnippet(resultPage.getSnippetFromContentByLemmaValues(lemmasToFind));
-        return pageData;
     }
 
     List<PageRelevance> getPageRelevanceListByLemmaIdSetAndPageIdSet(Set<Integer> lemmaIdSet,
                                                                      Set<Integer> pageIdSet,
                                                                      int offset, int limit) {
-        List<Map<String, Number>> mapList = indexRepository.getPageIdAndRelevanceByLemmaIdSetAndPageIdSet(
-                lemmaIdSet, pageIdSet, offset, limit);
-
-        return new ArrayList<>(mapList.stream()
-                .map(PageRelevance::new)
-                .toList());
+        List<Map<String, Number>> pagesRelevanceData =
+                indexRepository.getPageIdAndRelevanceByLemmaIdSetAndPageIdSet(lemmaIdSet, pageIdSet, offset, limit);
+        return pagesRelevanceData.stream()
+                .map(pageRelevanceSqlResult -> {
+                    PageRelevance relevance = new PageRelevance();
+                    pageRelevanceSqlResult.forEach((key, value) -> {
+                        switch (key) {
+                            case "page_id" -> relevance.setPageId((Integer) value);
+                            case "absolute_relevance" -> relevance.setAbsoluteRelevance((Double) value);
+                            case "relative_relevance" -> relevance.setRelativeRelevance((Double) value);
+                            default -> throw new RuntimeException();
+                        }
+                    });
+                    return relevance;
+                })
+                .toList();
     }
 
     private List<Page> getResultPages(Set<Lemma> foundLemmas, Integer offset, Integer limit) {
-        Set<Integer> foundPageIdSet =
-                recursivePageIdSetIntersectionByLemmaIds(new HashSet<>(foundLemmas));  // рекурсивное сложение pageId искомых лемм
+        Set<Integer> foundPageIdSet = recursivePageIdSetIntersectionByLemmaIds(
+                new HashSet<>(foundLemmas));  // рекурсивное сложение pageId искомых лемм
         Set<Integer> foundLemmasIdSet = foundLemmas.stream()
                 .map(Lemma::getId)
                 .collect(Collectors.toSet());
@@ -156,35 +128,29 @@ public class SearchingServiceImpl implements SearchingService {
                         .collect(Collectors.toSet()));
     }
 
+    private SearchResponseData getSearchResponseData(Page resultPage, Set<String> lemmasToFind) {
+        SearchResponseData pageSearchResponseData = new SearchResponseData(resultPage);
+        pageSearchResponseData.setSnippet(
+                lemmasService.getSnippetFromContentByLemmaValues(resultPage.getContent(), lemmasToFind));
+        return pageSearchResponseData;
+    }
+
     private SearchResultResponseDto getSuccessSearchResultResponseDto(
             List<Page> resultPages, Set<String> lemmasToFind) {
         List<SearchResponseData> searchResponseDataList = new ArrayList<>();
-
-        for (Page resultPage : resultPages) {
-            SearchResponseData pageData = getSearchResponseData(resultPage, lemmasToFind);
-            searchResponseDataList.add(pageData);
-        }
-
-        SearchResultResponseDto response = new SearchResultResponseDto();
-        response.setResult(true);
-        int count = resultPages.size();
-        response.setCount(count);
-        response.setData(searchResponseDataList);
-        logFinalResult(count);
-        return response;
+        resultPages.forEach((resultPage) ->
+                searchResponseDataList.add(getSearchResponseData(resultPage, lemmasToFind)));
+        logFinalResult(resultPages.size());
+        return new SearchResultResponseDto(true, resultPages.size(), searchResponseDataList, "");
     }
 
     private SearchResultResponseDto getErrorSearchResultResponseDto(String errorText) {
-        SearchResultResponseDto response = new SearchResultResponseDto();
-        response.setResult(false);
-        response.setError(errorText);
         logFinalResult(0);
-        return response;
+        return new SearchResultResponseDto(false, 0, List.of(), errorText);
     }
 
     private void logFinalResult(int count) {
-        String message = "Поиск завершен, найдено " + count + " результатов";
-        log.info(message);
+        log.info("Поиск завершен, найдено " + count + " результатов");
     }
 
 }

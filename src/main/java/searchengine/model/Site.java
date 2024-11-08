@@ -1,16 +1,18 @@
 package searchengine.model;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import jakarta.persistence.*;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
-@Getter @Setter
 @Entity
 @Table(name = "site")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class Site {
 
     @Id
@@ -33,4 +35,5 @@ public class Site {
 
     @Column(name = "name", nullable = false)
     private String name;  // имя сайта
+
 }

@@ -1,4 +1,4 @@
-package searchengine.services.indexing.exceptions;
+package searchengine.exceptions;
 
 public class IndexingIsNotLaunchedException extends RuntimeException {
 

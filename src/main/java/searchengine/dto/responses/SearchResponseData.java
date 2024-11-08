@@ -1,20 +1,30 @@
 package searchengine.dto.responses;
 
 import lombok.Data;
+import searchengine.model.Page;
+import searchengine.model.Site;
 
 @Data
 public class SearchResponseData {
 
-    String site;
+    private String site;
 
-    String siteName;
+    private String siteName;
 
-    String uri;
+    private String uri;
 
-    String title;
+    private String title;
 
-    String snippet;
+    private String snippet;
 
-    float relevance = 1.0f;
+    private float relevance = 1.0f;
+
+    public SearchResponseData(Page page) {
+        Site pageSite = page.getSite();
+        site = pageSite.getUrl();
+        siteName = pageSite.getName();
+        uri = page.getPath();
+        title = page.getTitle();
+    }
 
 }

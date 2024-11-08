@@ -24,12 +24,13 @@ spring:
 #      auto-commit: true
 
   jpa:
-#    show-sql: true
+    show-sql: true
     hibernate:
       ddl-auto: none
+    open-in-view: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
+#        dialect: org.hibernate.dialect.MySQLDialect
         order_inserts: true
         order_updates: true
 #        generate_statistics: true
@@ -42,6 +43,6 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.xml
     drop-first: false
 
-#logging:
-#  level:
-#    root: WARN
+logging:
+  level:
+    root: WARN

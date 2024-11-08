@@ -5,8 +5,7 @@ import searchengine.model.SiteStatus;
 
 import java.time.LocalDateTime;
 
-@Getter @Setter
-@NoArgsConstructor
+@Data
 public class SiteDto {
 
     private Integer id;

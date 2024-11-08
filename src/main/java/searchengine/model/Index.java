@@ -1,10 +1,12 @@
 package searchengine.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
-@Getter @Setter
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "\"index\"")
 public class Index {
@@ -20,7 +22,6 @@ public class Index {
     private Integer lemmaId;  // идентификатор леммы
 
     @Column(name = "\"rank\"", nullable = false)
-    private Float rank;  // количество данной леммы
-        // для данной страницы
+    private Float rank;  // количество таких леммы для данной страницы
 
 }
