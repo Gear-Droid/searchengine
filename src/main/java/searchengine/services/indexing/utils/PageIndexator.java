@@ -260,20 +260,14 @@ public class PageIndexator extends RecursiveTask<CopyOnWriteArraySet<String>> {
             }
         } else {
             // добавляем site url, если ссылка относительная
-            linkValue = siteDto.getUrl().concat(linkValue);
+            linkValue = siteDto.getUrl().concat(linkValue.startsWith("/") ? linkValue : "/".concat(linkValue));
         }
         // избавляемся от внутренних ссылок
-        if (linkValue.contains("#")) {
-            linkValue = linkValue.split("#")[0];
-        }
+        if (linkValue.contains("#")) linkValue = linkValue.split("#")[0];
         // очищаем query параметры
-        if (linkValue.contains("?")) {
-            linkValue = linkValue.split("\\?")[0];
-        }
+        if (linkValue.contains("?")) linkValue = linkValue.split("\\?")[0];
         // заменяем "//.../" -> "/"
-        linkValue = "https://".concat(
-            linkValue.substring("https://".length()).replaceAll("/+/", "/")
-        );
+        linkValue = "https://".concat(linkValue.substring("https://".length()).replaceAll("/+/", "/"));
         return linkValue.endsWith("/") ? linkValue : linkValue.concat("/");
     }
 

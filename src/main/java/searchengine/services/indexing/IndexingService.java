@@ -15,6 +15,12 @@ public interface IndexingService {
     String INDEXING_STOPPED_BY_USER_MESSAGE = "Индексация остановлена пользователем";
 
     /**
+     * Метод очистки из БД сайтов, которые не указаны в конфигурационном файле
+     * @throws IndexingAlreadyLaunchedException если уже запущена индексация
+     * **/
+    void removeUnusedSites();
+
+    /**
      * Метод обхода сайтов из конфигурационного файла и подготовки тасок на индексацию
      * @throws IndexingAlreadyLaunchedException если уже запущена индексация
      * **/

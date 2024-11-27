@@ -17,6 +17,7 @@ import searchengine.services.morphology.LemmasService;
 
 import java.util.*;
 import java.util.concurrent.ForkJoinPool;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -27,14 +28,21 @@ public class IndexingServiceImpl implements IndexingService {
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
     private final IndexRepository indexRepository;
-    private final ConfigSiteList sites;  // сайты из конфигурационного файла
+    private final ConfigSiteList configSites;  // сайты из конфигурационного файла
+
     private ForkJoinPool fjp = new ForkJoinPool();  // ForkJoinPool для контроля за индексируемыми сайтами
+
+    @Override
+    @Transactional
+    public void removeUnusedSites() {
+        siteRepository.deleteAll(getUnusedSites());
+    }
 
     @Override
     @Transactional
     public List<PageIndexator> initSitesIndexingTasks() {
         try {
-            return sites.getSites().stream()
+            return configSites.getSites().stream()
                     .map(this::initIndexingTask)
                     .toList();
         } catch (IndexingAlreadyLaunchedException e) {
@@ -66,8 +74,17 @@ public class IndexingServiceImpl implements IndexingService {
         fjp.shutdownNow();
     }
 
+    private List<Site> getUnusedSites() {
+        Set<String> configSitesUrl = configSites.getSites().stream()
+                .map(ConfigSite::getUrl)
+                .collect(Collectors.toSet());
+        return siteRepository.findAll().stream()
+                .filter(site -> !configSitesUrl.contains(site.getUrl()))
+                .toList();
+    }
+
     private ConfigSite getConfigSiteByUrlOrThrowConfigSiteNotFoundException(String url) {
-        return sites.getSites().stream()
+        return configSites.getSites().stream()
                 .filter(configSite -> url.contains(configSite.getUrl()))
                 .findFirst()
                 .orElseThrow(() -> new ConfigSiteNotFoundException("Данная страница находится за пределами сайтов," +
@@ -117,17 +134,19 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     private PageIndexator initIndexingTask(ConfigSite configSite, String url, boolean onlyThisPageIndexing) {
-        url = url.endsWith("/") ? url : url.concat("/");
         SiteDto siteDto = initSiteDtoFromRepositoryOrCreateNew(configSite);
 
-        if (!onlyThisPageIndexing && siteDto.getId() != null) removeSiteFromRepository(siteDto);
+        if (!onlyThisPageIndexing && siteDto.getId() != null) {
+            removeSiteFromRepository(siteDto);
+            siteDto.setId(null);
+        }
 
-        siteDto.setId(null);
+        siteDto.updateStatusTime();
         Site siteEntity = SiteMapper.INSTANCE.siteDtoToSite(siteDto);
         siteDto = SiteMapper.INSTANCE.siteToSiteDto(siteRepository.saveAndFlush(siteEntity));
 
-        return new PageIndexator(siteDto, url, this, lemmasService,
-                siteRepository, pageRepository, indexRepository, onlyThisPageIndexing);
+        return new PageIndexator(siteDto, url.endsWith("/") ? url : url.concat("/"), this,
+                lemmasService, siteRepository, pageRepository, indexRepository, onlyThisPageIndexing);
     }
 
     private void stopSiteIndexing(Site siteToStop) {

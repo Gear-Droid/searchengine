@@ -9,7 +9,6 @@ import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.exceptions.ConfigSiteNotFoundException;
 import searchengine.exceptions.IndexingAlreadyLaunchedException;
 import searchengine.exceptions.IndexingIsNotLaunchedException;
-import searchengine.services.indexing.utils.PageIndexator;
 import searchengine.services.statistics.StatisticsService;
 import searchengine.services.indexing.IndexingService;
 import searchengine.services.searching.SearchingService;
@@ -29,14 +28,15 @@ public class ApiController {
                         IndexingIsNotLaunchedException.class,
                         ConfigSiteNotFoundException.class })
     public ResponseEntity<ErrorResponseDto> apiErrorHandler(RuntimeException e) {
-        ErrorResponseDto response = new ErrorResponseDto(false, e.getLocalizedMessage());
-        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+        return new ResponseEntity<>(
+                new ErrorResponseDto(false, e.getLocalizedMessage()),
+                HttpStatus.BAD_REQUEST);
     }
 
     @GetMapping("/startIndexing")
     public SuccessResponseDto startIndexing() {
-        List<PageIndexator> indexingTasks = indexingService.initSitesIndexingTasks();
-        indexingService.submitAll(indexingTasks);
+        indexingService.removeUnusedSites();
+        indexingService.submitAll(indexingService.initSitesIndexingTasks());
         return new SuccessResponseDto(true);
     }
 
@@ -48,8 +48,7 @@ public class ApiController {
 
     @PostMapping("/indexPage")
     public SuccessResponseDto indexPage(@RequestParam String url) {
-        PageIndexator task = indexingService.initPageIndexingTask(url);
-        indexingService.submitAll(List.of(task));
+        indexingService.submitAll(List.of(indexingService.initPageIndexingTask(url)));
         return new SuccessResponseDto(true);
     }
 
